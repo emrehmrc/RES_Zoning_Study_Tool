@@ -1,0 +1,27 @@
+### Python Temizliği ###
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+
+### Projeye Özel Klasörler (Görselden Hareketle) ###
+# Önbellek klasörlerini her yerde engelle
+**/__pycache__/
+
+# Geçici dosyalar ve çıktılar
+temp/
+outputs/
+
+# Büyük veri dosyalarını GitHub'a yüklememek iyidir
+data/
+temp/
+# Eğer data içindeki yapı kalsın ama içi boş olsun istersen: !data/.gitkeep
+
+### Sistem ve IDE Dosyaları ###
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

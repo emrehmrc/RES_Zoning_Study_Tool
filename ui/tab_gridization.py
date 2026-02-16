@@ -25,12 +25,12 @@ class GridizationTab(BaseTab):
         # Ana kaynak seçimi: Yeni mi oluşturulacak yoksa mevcut CSV mi yüklenecek?
         grid_option = st.radio(
             "Choose Grid Option:",
-            ["Yeni Grid Oluştur", "Mevcut Grid CSV Yükle"],
+            ["Generate a New Grid", "Upload an Existing Grid"],
             key="grid_option",
             horizontal=True
         )
         
-        if grid_option == "Yeni Grid Oluştur":
+        if grid_option == "Generate a New Grid":
             self._render_grid_creation()
         else:
             self._render_grid_upload()
@@ -73,11 +73,35 @@ class GridizationTab(BaseTab):
                         gdf = gpd.read_file(path)
                         # NUTS 0 seviyesi ülkeleri filtrele
                         countries_only = gdf[gdf['LEVL_CODE'] == 0].copy()
+                        
+                        # Mapping from NUTS/ISO code to English Name
+                        nuts_mapping = {
+                            'AL': 'Albania', 'AT': 'Austria', 'BE': 'Belgium', 'BG': 'Bulgaria',
+                            'CH': 'Switzerland', 'CY': 'Cyprus', 'CZ': 'Czechia', 'DE': 'Germany',
+                            'DK': 'Denmark', 'EE': 'Estonia', 'EL': 'Greece', 'ES': 'Spain',
+                            'FI': 'Finland', 'FR': 'France', 'HR': 'Croatia', 'HU': 'Hungary',
+                            'IE': 'Ireland', 'IS': 'Iceland', 'IT': 'Italy', 'LI': 'Liechtenstein',
+                            'LT': 'Lithuania', 'LU': 'Luxembourg', 'LV': 'Latvia', 'ME': 'Montenegro',
+                            'MK': 'North Macedonia', 'MT': 'Malta', 'NL': 'Netherlands', 'NO': 'Norway',
+                            'PL': 'Poland', 'PT': 'Portugal', 'RO': 'Romania', 'RS': 'Serbia',
+                            'SE': 'Sweden', 'SI': 'Slovenia', 'SK': 'Slovakia', 'TR': 'Turkey',
+                            'UK': 'United Kingdom', 'XK': 'Kosovo'
+                        }
+                        
+                        # Create NAME_EN column
+                        # Use CNTR_CODE if available, otherwise try to map from existing name or code
+                        if 'CNTR_CODE' in countries_only.columns:
+                            countries_only['NAME_EN'] = countries_only['CNTR_CODE'].map(nuts_mapping)
+                            # Fill missing values with original name
+                            countries_only['NAME_EN'] = countries_only['NAME_EN'].fillna(countries_only['NAME_LATN'])
+                        else:
+                            countries_only['NAME_EN'] = countries_only['NAME_LATN']
+                            
                         return countries_only
 
                     world_countries = load_nuts_data(Config.NUTS_PATH)
                     
-                    country_column = 'NAME_LATN' 
+                    country_column = 'NAME_EN' 
                     country_list = sorted(world_countries[country_column].unique())
 
                     selected_country_name = st.selectbox("Select a Country", country_list, key="country_select")

@@ -17,69 +17,13 @@ class ScoringTab(BaseTab):
     Enhanced tab for raster layer analysis with multiple modes
     """
     
-    # Predefined layer categories and names
-    LAYER_CATEGORIES = {
-        "Infrastructure - Transmission Lines": [
-            "Distance to 110kV Lines",
-            "Distance to 220kV Lines",
-            "Distance to 400kV Lines"
-        ],
-        "Infrastructure - Substations": [
-            "Distance to 110kV Substations",
-            "Distance to 220kV Substations",
-            "Distance to 400kV Substations"
-        ],
-        "Land Use & Environment": [
-            "Agricultural Areas",
-            "Forest",
-            "Land Use (Urban, Residential, Industrial)",
-            "Military Areas",
-            "Protected Areas (Habitats)"
-        ],
-        "Natural Resources": [
-            "Energy Sources",
-            "Hydrography",
-            "Mineral Resources"
-        ],
-        "Risk & Climate": [
-            "Natural Risk Zones",
-            "Slope (%)",
-            "Solar Irradiation (kWh/m²)",
-            "Temperature (°C)"
-        ],
-        "Transportation": [
-            "Transport Networks"
-        ]
-    }
-    
-    # Fixed modes for each predefined layer (non-editable)
-    PREDEFINED_LAYER_MODES = {
-        "Agricultural Areas": ['distance', 'coverage'],
-        "Distance to 110kV Lines": ['distance'],
-        "Distance to 220kV Lines": ['distance'],
-        "Distance to 400kV Lines": ['distance'],
-        "Distance to 110kV Substations": ['distance'],
-        "Distance to 220kV Substations": ['distance'],
-        "Distance to 400kV Substations": ['distance'],
-        "Energy Sources": ['distance'],
-        "Forest": ['distance', 'coverage'],
-        "Hydrography": ['distance'],
-        "Land Use (Urban, Residential, Industrial)": ['distance', 'coverage'],
-        "Military Areas": ['distance'],
-        "Mineral Resources": ['distance'],
-        "Natural Risk Zones": ['distance'],
-        "Protected Areas (Habitats)": ['distance'],
-        "Slope (%)": ['min', 'max', 'mean'],
-        "Solar Irradiation (kWh/m²)": ['min', 'max', 'mean'],
-        "Temperature (°C)": ['min', 'max', 'mean'],
-        "Transport Networks": ['distance']
-    }
-    
-    ALL_LAYER_NAMES = [
-        layer for category in LAYER_CATEGORIES.values() 
-        for layer in category
-    ]
-    
+    def __init__(self, session_state, config):
+        """
+        Initialize with session state and configuration
+        """
+        super().__init__(session_state)
+        self.config = config
+
     def render(self):
         st.header("🎯 Step 2: Distance & Coverage Analysis")
         st.markdown("---")
@@ -181,7 +125,7 @@ class ScoringTab(BaseTab):
                 # Layer name based on mode
                 if layer_mode == "Select from Predefined List":
                     used_layers = [cfg['prefix'] for cfg in self.state.layer_configs]
-                    available_layers = [l for l in self.ALL_LAYER_NAMES if l not in used_layers]
+                    available_layers = [l for l in self.config.ALL_LAYER_NAMES if l not in used_layers]
                     
                     if available_layers:
                         layer_name = st.selectbox(
@@ -194,7 +138,7 @@ class ScoringTab(BaseTab):
                         
                         # Show predefined modes (non-editable)
                         if layer_name:
-                            predefined_modes = self.PREDEFINED_LAYER_MODES.get(layer_name, [])
+                            predefined_modes = self.config.PREDEFINED_LAYER_MODES.get(layer_name, [])
                             st.info(f"ℹ️ This layer will use the following analysis modes: **{', '.join(predefined_modes)}**")
                     else:
                         st.warning("⚠️ All predefined layers have been added!")
@@ -318,7 +262,7 @@ class ScoringTab(BaseTab):
                         # Determine modes based on layer type
                         if layer_mode == "Select from Predefined List":
                             # Use predefined modes
-                            selected_modes = self.PREDEFINED_LAYER_MODES.get(layer_name, ['mean'])
+                            selected_modes = self.config.PREDEFINED_LAYER_MODES.get(layer_name, ['mean'])
                             is_predefined = True
                             target_value = 1  # Default for predefined
                         else:
@@ -366,13 +310,13 @@ class ScoringTab(BaseTab):
             st.markdown("### 🗂️ Configured Layers")
             
             # Group layers by category
-            categorized_layers = {cat: [] for cat in self.LAYER_CATEGORIES.keys()}
+            categorized_layers = {cat: [] for cat in self.config.LAYER_CATEGORIES.keys()}
             uncategorized_layers = []
             
             for config in self.state.layer_configs:
                 layer_name = config['prefix']
                 found = False
-                for category, layers in self.LAYER_CATEGORIES.items():
+                for category, layers in self.config.LAYER_CATEGORIES.items():
                     if layer_name in layers:
                         categorized_layers[category].append(config)
                         found = True
@@ -471,7 +415,7 @@ class ScoringTab(BaseTab):
             # Show summary statistics
             st.subheader("📊 Summary Statistics")
             
-            for category, layer_names in self.LAYER_CATEGORIES.items():
+            for category, layer_names in self.config.LAYER_CATEGORIES.items():
                 category_configs = [
                     cfg for cfg in self.state.layer_configs 
                     if cfg['prefix'] in layer_names
@@ -485,7 +429,7 @@ class ScoringTab(BaseTab):
             # Uncategorized layers
             uncategorized = [
                 cfg for cfg in self.state.layer_configs 
-                if cfg['prefix'] not in self.ALL_LAYER_NAMES
+                if cfg['prefix'] not in self.config.ALL_LAYER_NAMES
             ]
             
             if uncategorized:

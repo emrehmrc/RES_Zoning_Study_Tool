@@ -12,49 +12,12 @@ class LevelScoringTab(BaseTab):
     Handles weighted scoring and hard exclusion constraints with smart mode selection.
     """
     
-    # Default scoring configurations for common layer types
-    DEFAULT_SCORING_CONFIGS = {
-        'distance': {
-            'levels': [
-                {'max': 99999, 'min': 10, 'score': 100},
-                {'max': 10, 'min': 5, 'score': 70},
-                {'max': 5, 'min': 2, 'score': 40},
-                {'max': 2, 'min': 0, 'score': 10}
-            ]
-        },
-        'coverage': {
-            'levels': [
-                {'max': 100, 'min': 80, 'score': 10},
-                {'max': 80, 'min': 50, 'score': 40},
-                {'max': 50, 'min': 20, 'score': 70},
-                {'max': 20, 'min': 0, 'score': 100}
-            ]
-        },
-        'slope': {
-            'levels': [
-                {'max': 5, 'min': 0, 'score': 100},
-                {'max': 10, 'min': 5, 'score': 70},
-                {'max': 20, 'min': 10, 'score': 40},
-                {'max': 99999, 'min': 20, 'score': 10}
-            ]
-        },
-        'solar': {
-            'levels': [
-                {'max': 99999, 'min': 1800, 'score': 100},
-                {'max': 1800, 'min': 1600, 'score': 70},
-                {'max': 1600, 'min': 1400, 'score': 40},
-                {'max': 1400, 'min': 0, 'score': 10}
-            ]
-        },
-        'default': {
-            'levels': [
-                {'max': 99999, 'min': 75, 'score': 100},
-                {'max': 75, 'min': 50, 'score': 70},
-                {'max': 50, 'min': 25, 'score': 40},
-                {'max': 25, 'min': 0, 'score': 10}
-            ]
-        }
-    }
+    def __init__(self, session_state, config):
+        """
+        Initialize with session state and configuration
+        """
+        super().__init__(session_state)
+        self.config = config
 
     def render(self):
         st.header("📈 Step 3: Level-Based Scoring & Constraints")
@@ -290,7 +253,7 @@ class LevelScoringTab(BaseTab):
         
         # Distance scoring levels
         st.markdown("**📏 Distance Scoring Levels** (used when coverage ≤ max)")
-        default_config = self.DEFAULT_SCORING_CONFIGS.get('distance')
+        default_config = self.config.SCORING_CONFIGS.get('distance')
         distance_levels = self._render_level_inputs(layer_name, 'distance', default_config['levels'])
         
         scoring_config[layer_name] = {
@@ -453,15 +416,15 @@ class LevelScoringTab(BaseTab):
         layer_lower = layer_name.lower()
         
         if 'slope' in layer_lower:
-            return self.DEFAULT_SCORING_CONFIGS['slope']
+            return self.config.SCORING_CONFIGS['slope']
         elif 'solar' in layer_lower or 'irradiation' in layer_lower:
-            return self.DEFAULT_SCORING_CONFIGS['solar']
+            return self.config.SCORING_CONFIGS['solar']
         elif 'distance' in layer_lower:
-            return self.DEFAULT_SCORING_CONFIGS['distance']
+            return self.config.SCORING_CONFIGS['distance']
         elif 'coverage' in layer_lower:
-            return self.DEFAULT_SCORING_CONFIGS['coverage']
+            return self.config.SCORING_CONFIGS['coverage']
         else:
-            return self.DEFAULT_SCORING_CONFIGS['default']
+            return self.config.SCORING_CONFIGS['default']
 
     def _run_calculation(self, df, scoring_config, constraint_config):
         """
