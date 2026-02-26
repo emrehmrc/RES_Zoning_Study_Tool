@@ -437,6 +437,10 @@ class LevelScoringTab(BaseTab):
             
             total_weighted_score = np.zeros(len(results_df))
             
+            knockout_mask = np.zeros(len(results_df), dtype=bool)
+            if 'EXCLUSION_REASONS' not in results_df.columns:
+                results_df['EXCLUSION_REASONS'] = ''
+            
             # 1. Calculate Weighted Scores
             for layer_name, config in scoring_config.items():
                 if config['type'] == 'distance_coverage':
@@ -447,34 +451,50 @@ class LevelScoringTab(BaseTab):
                     
                     # If coverage > threshold, score = 0, else use distance scoring
                     def get_distance_coverage_score(row):
-                        if row[coverage_col] > max_cov:
+                        cov = row[coverage_col]
+                        if pd.notna(cov) and cov > max_cov:
                             return 0
                         else:
                             dist_val = row[distance_col]
-                            for lv in config['distance_levels']:
-                                if lv['min'] <= dist_val <= lv['max']:
-                                    return lv['score']
+                            if pd.notna(dist_val):
+                                for lv in config['distance_levels']:
+                                    if lv['min'] <= dist_val <= lv['max']:
+                                        return lv['score']
                             return 0
                     
                     layer_scores = results_df.apply(get_distance_coverage_score, axis=1)
                     results_df[f"{layer_name}_SCORE"] = layer_scores
                     total_weighted_score += layer_scores * config['weight']
+                    
+                    # CONDITIONAL THRESHOLD KNOCK-OUT
+                    layer_knockout = results_df[coverage_col] > max_cov
+                    layer_knockout = layer_knockout.fillna(False)
+                    knockout_mask = knockout_mask | layer_knockout
+                    results_df.loc[layer_knockout, 'EXCLUSION_REASONS'] += f"{layer_name} (cov>{max_cov}%) | "
                 
                 elif config['type'] == 'single_mode':
                     # Standard single mode scoring
                     column = config['column']
                     
                     def get_level_score(val):
-                        for lv in config['levels']:
-                            if lv['min'] <= val <= lv['max']:
-                                return lv['score']
+                        if pd.notna(val):
+                            for lv in config['levels']:
+                                if lv['min'] <= val <= lv['max']:
+                                    return lv['score']
                         return 0
                     
                     layer_scores = results_df[column].apply(get_level_score)
                     results_df[f"{layer_name}_SCORE"] = layer_scores
                     total_weighted_score += layer_scores * config['weight']
 
+                    # STRICT KNOCK-OUT
+                    layer_knockout = layer_scores == 0
+                    knockout_mask = knockout_mask | layer_knockout
+                    results_df.loc[layer_knockout, 'EXCLUSION_REASONS'] += f"{layer_name} (score=0) | "
+
             results_df['FINAL_GRID_SCORE'] = total_weighted_score
+            # Apply cumulative knockouts from scoring logic
+            results_df.loc[knockout_mask, 'FINAL_GRID_SCORE'] = 0
 
             # 2. Apply Hard Exclusion Constraints
             exclusion_tracking = []
@@ -483,14 +503,11 @@ class LevelScoringTab(BaseTab):
                 threshold = config['threshold']
                 
                 exclusion_mask = results_df[column] > threshold
+                exclusion_mask = exclusion_mask.fillna(False)
                 excluded_count = exclusion_mask.sum()
                 
                 results_df.loc[exclusion_mask, 'FINAL_GRID_SCORE'] = 0
-                
-                if 'EXCLUSION_REASONS' not in results_df.columns:
-                    results_df['EXCLUSION_REASONS'] = ''
-                
-                results_df.loc[exclusion_mask, 'EXCLUSION_REASONS'] += f"{layer_name}; "
+                results_df.loc[exclusion_mask, 'EXCLUSION_REASONS'] += f"{layer_name} | "
                 
                 exclusion_tracking.append({
                     'Layer': layer_name,
@@ -548,7 +565,7 @@ class LevelScoringTab(BaseTab):
             st.dataframe(results_df[unique_preview_cols].head(20), use_container_width=True)
             
             # Download
-            csv = results_df.to_csv(index=False).encode('utf-8')
+            csv = results_df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
             st.download_button(
                 "📥 Download Complete Results",
                 csv,

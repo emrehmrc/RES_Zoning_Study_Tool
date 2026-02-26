@@ -13,6 +13,9 @@ class Config:
     # Default path for NUTS data
     NUTS_PATH = r"C:\Users\boray.guvenc\OneDrive - MRC\Masaüstü\yedek_final_final\Dashboard\Input\NUTS_RG_01M_2021_4326.geojson"
 
+    # Default path for EEZ (Exclusive Economic Zone) data - used for Off-Shore mode
+    EEZ_PATH = BASE_DIR / "Off_shore_shapes" / "EEZ_Europe.shp"
+
     # Grid Varsayılanları (Eksik olan kısım)
     DEFAULT_GRID_SIZE_X = 1000
     DEFAULT_GRID_SIZE_Y = 1000

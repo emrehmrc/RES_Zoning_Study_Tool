@@ -93,9 +93,9 @@ class UniversalRasterScorer:
         is_square = pixel_diff < (avg_pixel_size * 0.01)
         
         if not is_square:
-            print(f"   📐 Non-square pixels: {pixel_width:.2f}m x {pixel_height:.2f}m (avg: {avg_pixel_size:.2f}m)")
+            print(f"   - Non-square pixels: {pixel_width:.2f}m x {pixel_height:.2f}m (avg: {avg_pixel_size:.2f}m)")
         else:
-            print(f"   📐 Square pixels: {avg_pixel_size:.2f}m x {avg_pixel_size:.2f}m")
+            print(f"   - Square pixels: {avg_pixel_size:.2f}m x {avg_pixel_size:.2f}m")
         
         if window:
             target_w = int(window.width)
@@ -145,7 +145,7 @@ class UniversalRasterScorer:
         max_distance_meters = max_distance_km * 1000
         max_distance_pixels = int(max_distance_meters / avg_pixel_size)
         
-        print(f"   🎯 Max search distance: {max_distance_km} km = {max_distance_pixels} pixels")
+        print(f"   > Max search distance: {max_distance_km} km = {max_distance_pixels} pixels")
         
         if is_square:
             gdal.PushErrorHandler('CPLQuietErrorHandler')
@@ -216,14 +216,14 @@ class UniversalRasterScorer:
             xmin, ymin, xmax, ymax = grid_transformed.total_bounds
             window = from_bounds(xmin, ymin, xmax, ymax, src.transform)
             
-            raster_data = src.read(1, window=window).astype(np.float32)
+            raster_data = src.read(1, window=window, boundless=True, fill_value=safe_nodata).astype(np.float32)
             win_transform = src.window_transform(window)
         
         results = []
         
         # Process each analysis mode
         for mode in analysis_modes:
-            print(f"   📊 Processing mode: {mode}")
+            print(f"   * Processing mode: {mode}")
             
             if mode == 'distance':
                 # Distance calculation
@@ -344,7 +344,7 @@ class UniversalRasterScorer:
         total_start = time.time()
         
         print(f"{'='*60}")
-        print(f"🎯 ADAPTIVE STRATEGY SELECTION")
+        print(f"> ADAPTIVE STRATEGY SELECTION")
         print(f"{'='*60}")
         print(f"Grid size: {n_cells:,} cells")
         print(f"Layers: {n_layers}")
@@ -352,17 +352,17 @@ class UniversalRasterScorer:
         
         # Strategy selection
         if n_cells < 5000:
-            print(f"📊 Strategy: LAYER PARALLELIZATION (small grid)")
+            print(f"* Strategy: LAYER PARALLELIZATION (small grid)")
             print(f"{'='*60}\n")
             result = self._parallel_by_layers(grid_gdf, layer_configs, n_workers)
         
         elif n_cells < 20000 and n_layers > 5:
-            print(f"📊 Strategy: HYBRID (medium grid, many layers)")
+            print(f"* Strategy: HYBRID (medium grid, many layers)")
             print(f"{'='*60}\n")
             result = self._process_grid_chunked(grid_gdf, layer_configs, chunk_size, n_workers)
         
         else:
-            print(f"📊 Strategy: GRID-CHUNKED (large grid or single layer)")
+            print(f"* Strategy: GRID-CHUNKED (large grid or single layer)")
             print(f"   Using {n_workers} parallel chunks")
             print(f"{'='*60}\n")
             result = self._process_grid_chunked(grid_gdf, layer_configs, chunk_size, n_workers)
@@ -370,7 +370,7 @@ class UniversalRasterScorer:
         total_time = time.time() - total_start
         
         print(f"\n{'='*60}")
-        print(f"✅ ADAPTIVE PROCESSING COMPLETE")
+        print(f"V ADAPTIVE PROCESSING COMPLETE")
         print(f"{'='*60}")
         print(f"Total time: {total_time:.2f}s")
         print(f"Avg per cell: {total_time/n_cells*1000:.2f}ms")
@@ -381,7 +381,7 @@ class UniversalRasterScorer:
     
     def _parallel_by_layers(self, grid_gdf, layer_configs, n_workers):
         """Process all layers in parallel"""
-        print(f"🚀 Processing all {len(layer_configs)} layers in parallel...")
+        print(f"> Processing all {len(layer_configs)} layers in parallel...")
         
         args_list = [
             (grid_gdf, layer['path'], layer['prefix'], 
@@ -411,9 +411,9 @@ class UniversalRasterScorer:
         all_results = []
         
         for layer_idx, layer in enumerate(layer_configs):
-            print(f"\n{'─'*60}")
-            print(f"🔄 Layer {layer_idx+1}/{len(layer_configs)}: {layer['prefix']}")
-            print(f"{'─'*60}")
+            print(f"\n{'-'*60}")
+            print(f"> Layer {layer_idx+1}/{len(layer_configs)}: {layer['prefix']}")
+            print(f"{'-'*60}")
             layer_start = time.time()
             
             args_list = [
@@ -430,7 +430,7 @@ class UniversalRasterScorer:
             layer_result = pd.concat(chunk_results, ignore_index=True)
             all_results.append(layer_result)
             
-            print(f"   ✅ Completed in {time.time()-layer_start:.2f}s")
+            print(f"   V Completed in {time.time()-layer_start:.2f}s")
         
         merged = grid_gdf[['cell_id', 'wkt']].copy()
         for result_df in all_results:

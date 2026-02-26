@@ -25,3 +25,9 @@ temp/
 Thumbs.db
 .vscode/
 .idea/
+
+
+# CSV and XLSX files
+*.csv
+*.xlsx
+*.csv

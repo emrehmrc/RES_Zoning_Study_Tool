@@ -442,7 +442,7 @@ class ScoringTab(BaseTab):
             st.dataframe(result.head(20), use_container_width=True)
             
             # Download button
-            csv = result.to_csv(index=False).encode('utf-8')
+            csv = result.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
             st.download_button(
                 label="📥 Download Results CSV",
                 data=csv,

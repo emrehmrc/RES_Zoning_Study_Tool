@@ -120,3 +120,108 @@ class SolarConfig:
             ]
         }
     }
+
+    # -------------------------------------------------------------------------
+    # CLUSTER CONNECTION SCORING RULES (Step 4)
+    # Defines distance-based scoring rules for transmission infrastructure.
+    # Each rule: criteria, weight, capacity range, 4 scoring levels, kind, kV
+    # -------------------------------------------------------------------------
+
+    CLUSTER_SCORING_RULES = [
+        # 110kV Lines (cap 30-70 MW)
+        {"criteria_norm": "Distance to 110kV Line", "weight_frac": 0.2,
+         "cap_min": 30, "cap_max": 70,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 15, "L2_min": 10, "L2_score": 70,
+         "L3_max": 20, "L3_min": 15, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 20, "L4_score": 10,
+         "kind": "Line", "kv": 110},
+        # 220kV Lines (cap 70-180 MW)
+        {"criteria_norm": "Distance to 220kV Line", "weight_frac": 0.2,
+         "cap_min": 70, "cap_max": 180,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 15, "L2_min": 10, "L2_score": 70,
+         "L3_max": 20, "L3_min": 15, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 20, "L4_score": 10,
+         "kind": "Line", "kv": 220},
+        # 400kV Lines (cap 180-400 MW)
+        {"criteria_norm": "Distance to 400kV Line", "weight_frac": 0.2,
+         "cap_min": 180, "cap_max": 400,
+         "L1_max": 5, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 10, "L2_min": 5, "L2_score": 70,
+         "L3_max": 15, "L3_min": 10, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 15, "L4_score": 10,
+         "kind": "Line", "kv": 400},
+        # 110kV Substation (cap 30-70 MW)
+        {"criteria_norm": "Distance to 110kV Substation", "weight_frac": 0.2,
+         "cap_min": 30, "cap_max": 70,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 20, "L2_min": 10, "L2_score": 70,
+         "L3_max": 30, "L3_min": 20, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 30, "L4_score": 10,
+         "kind": "Substation", "kv": 110},
+        # 110kV Substation (cap 10-30 MW)
+        {"criteria_norm": "Distance to 110kV Substation", "weight_frac": 0.2,
+         "cap_min": 10, "cap_max": 30,
+         "L1_max": 5, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 10, "L2_min": 5, "L2_score": 70,
+         "L3_max": 15, "L3_min": 10, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 15, "L4_score": 10,
+         "kind": "Substation", "kv": 110},
+        # 220kV Substation (cap 70-180 MW)
+        {"criteria_norm": "Distance to 220kV Substation", "weight_frac": 0.2,
+         "cap_min": 70, "cap_max": 180,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 20, "L2_min": 10, "L2_score": 70,
+         "L3_max": 40, "L3_min": 20, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 40, "L4_score": 10,
+         "kind": "Substation", "kv": 220},
+        # 220kV Substation (cap 30-70 MW)
+        {"criteria_norm": "Distance to 220kV Substation", "weight_frac": 0.2,
+         "cap_min": 30, "cap_max": 70,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 20, "L2_min": 10, "L2_score": 70,
+         "L3_max": 30, "L3_min": 20, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 30, "L4_score": 10,
+         "kind": "Substation", "kv": 220},
+        # 220kV Substation (cap 10-30 MW)
+        {"criteria_norm": "Distance to 220kV Substation", "weight_frac": 0.2,
+         "cap_min": 10, "cap_max": 30,
+         "L1_max": 5, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 10, "L2_min": 5, "L2_score": 70,
+         "L3_max": 15, "L3_min": 10, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 15, "L4_score": 10,
+         "kind": "Substation", "kv": 220},
+        # 400kV Substation (cap 180-400 MW)
+        {"criteria_norm": "Distance to 400kV Substation", "weight_frac": 0.2,
+         "cap_min": 180, "cap_max": 400,
+         "L1_max": 15, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 30, "L2_min": 15, "L2_score": 70,
+         "L3_max": 50, "L3_min": 30, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 50, "L4_score": 10,
+         "kind": "Substation", "kv": 400},
+        # 400kV Substation (cap 70-180 MW)
+        {"criteria_norm": "Distance to 400kV Substation", "weight_frac": 0.2,
+         "cap_min": 70, "cap_max": 180,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 20, "L2_min": 10, "L2_score": 70,
+         "L3_max": 40, "L3_min": 20, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 40, "L4_score": 10,
+         "kind": "Substation", "kv": 400},
+        # 400kV Substation (cap 30-70 MW)
+        {"criteria_norm": "Distance to 400kV Substation", "weight_frac": 0.2,
+         "cap_min": 30, "cap_max": 70,
+         "L1_max": 10, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 20, "L2_min": 10, "L2_score": 70,
+         "L3_max": 30, "L3_min": 20, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 30, "L4_score": 10,
+         "kind": "Substation", "kv": 400},
+        # 400kV Substation (cap 10-30 MW)
+        {"criteria_norm": "Distance to 400kV Substation", "weight_frac": 0.2,
+         "cap_min": 10, "cap_max": 30,
+         "L1_max": 5, "L1_min": 0.3, "L1_score": 100,
+         "L2_max": 10, "L2_min": 5, "L2_score": 70,
+         "L3_max": 15, "L3_min": 10, "L3_score": 40,
+         "L4_max": 99999, "L4_min": 15, "L4_score": 10,
+         "kind": "Substation", "kv": 400},
+    ]

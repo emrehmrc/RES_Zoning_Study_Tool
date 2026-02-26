@@ -9,6 +9,7 @@ from utils.config_manager import ConfigManager
 from ui.tab_gridization import GridizationTab
 from ui.tab_scoring import ScoringTab
 from ui.tab_level_scoring import LevelScoringTab
+from ui.tab_cluster_analysis import ClusterAnalysisTab
 
 def initialize_session_state():
     """Initialize all session state variables"""
@@ -109,7 +110,7 @@ def render_landing_page():
         with st.container(border=True):
             st.markdown("## ☀️ Solar PV Project")
             st.markdown("Analysis for Photovoltaic Power Plants")
-            st.markdown("- Solar Irradiation Analysis")
+            st.markdown("- Solar PV Potential Analysis")
             st.markdown("- Slope & Terrain Constraints")
             st.markdown("- Proximity to Transmission Lines")
             st.markdown("\n")
@@ -121,9 +122,9 @@ def render_landing_page():
         with st.container(border=True):
             st.markdown("## 🌬️ On-Shore Wind")
             st.markdown("Analysis for On-Shore Wind Zoning")
-            st.markdown("- Wind Speed & Density Analysis")
-            st.markdown("- Turbine Constraints")
-            st.markdown("- Environmental Exclusions")
+            st.markdown("- Wind Resource & Potential Assessment")
+            st.markdown("- Turbine Specific Suitability")
+            st.markdown("- Environmental & Social Constraints")
             st.markdown("\n")
             if st.button("Select On-Shore Mode", type="primary", use_container_width=True, key="btn_onshore"):
                 st.session_state.project_type = "OnShore"
@@ -133,8 +134,8 @@ def render_landing_page():
         with st.container(border=True):
             st.markdown("## 🌊 Off-Shore Wind")
             st.markdown("Analysis for Off-Shore Wind Zoning")
-            st.markdown("- Wind Speed & Density Analysis")
-            st.markdown("- Exclusive Economic Zones")
+            st.markdown("- Wind Resource & Potential Assessment")
+            st.markdown("- Turbine Specific Suitability")
             st.markdown("- Marine Constraints")
             st.markdown("\n")
             if st.button("Select Off-Shore Mode", type="primary", use_container_width=True, key="btn_offshore"):
@@ -222,12 +223,13 @@ def main():
     st.markdown("---")
     
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["1. Gridization", "2. Layer Calculation", "3. Scoring"])
+    tab1, tab2, tab3, tab4 = st.tabs(["1. Gridization", "2. Layer Calculation", "3. Scoring", "4. Cluster & Aggregation"])
     
     # Initialize tab objects - PASS Config to them!
     gridization_tab = GridizationTab(st.session_state)
     scoring_tab = ScoringTab(st.session_state, app_config)
     level_scoring_tab = LevelScoringTab(st.session_state, app_config)
+    cluster_tab = ClusterAnalysisTab(st.session_state, app_config)
     
     # Render tabs
     with tab1:
@@ -238,6 +240,9 @@ def main():
 
     with tab3:
         level_scoring_tab.render()
+        
+    with tab4:
+        cluster_tab.render()
     
     # Sidebar status
     with st.sidebar:
