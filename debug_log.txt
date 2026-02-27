@@ -1,0 +1,175 @@
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = OnShore
+DEBUG: ConfigManager.get_config received 'OnShore' (type: <class 'str'>)
+DEBUG: Config Title = On-Shore Wind Zoning Dashboard
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard
+DEBUG: project_type = Solar
+DEBUG: ConfigManager.get_config received 'Solar' (type: <class 'str'>)
+DEBUG: Config Title = Solar PV Zoning Dashboard

@@ -13,19 +13,23 @@ class ClusterEngine:
     """
 
     @staticmethod
-    def load_and_prepare_data(filepath, sep=';', decimal=','):
+    def load_and_prepare_data(filepath_or_df, sep=';', decimal=','):
         """
-        Reads the results CSV and converts to a valid GeoDataFrame.
+        Reads the results CSV or takes a DataFrame directly and converts to a valid GeoDataFrame.
         Filters out cells with 0 score.
         """
-        logging.info(f"Loading data from {filepath}")
-        
-        # Read the file
-        try:
-            df = pd.read_csv(filepath, sep=sep, decimal=decimal)
-        except Exception:
-            # Fallback for standard CSV format
-            df = pd.read_csv(filepath)
+        if isinstance(filepath_or_df, pd.DataFrame):
+            logging.info("Loading data from provided DataFrame.")
+            df = filepath_or_df.copy()
+        else:
+            logging.info(f"Loading data from {filepath_or_df}")
+            
+            # Read the file
+            try:
+                df = pd.read_csv(filepath_or_df, sep=sep, decimal=decimal)
+            except Exception:
+                # Fallback for standard CSV format
+                df = pd.read_csv(filepath_or_df)
 
         if 'wkt' not in df.columns or 'FINAL_GRID_SCORE' not in df.columns:
             raise ValueError("Required columns 'wkt' and 'FINAL_GRID_SCORE' not found in the dataset.")
@@ -218,14 +222,14 @@ class ClusterEngine:
         return cluster_gdf
 
     @classmethod
-    def run_clustering_pipeline(cls, filepath, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage=True):
+    def run_clustering_pipeline(cls, filepath_or_df, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage=True):
         """
         Executes the entire end-to-end vectorized clustering pipeline.
         Returns the final clustered GeoDataFrame.
         """
         t0 = time.time()
         
-        gdf = cls.load_and_prepare_data(filepath)
+        gdf = cls.load_and_prepare_data(filepath_or_df)
         t1 = time.time()
         
         gdf = cls.calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage)

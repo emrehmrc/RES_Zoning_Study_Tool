@@ -41,15 +41,30 @@ class ClusterAnalysisTab(BaseTab):
         # ── Section 1: Input Data ─────────────────────────────────────
         with st.container(border=True):
             st.subheader("1. Input Data")
-            uploaded_file = st.file_uploader(
-                "Upload Scored Results CSV",
-                type=['csv'],
-                key="cluster_csv_upload"
+            
+            source_option = st.radio(
+                "Select Data Source for Clustering:",
+                ["Use Results from Step 3", "Import Scored CSV"],
+                horizontal=True,
+                key="cluster_source_selection"
             )
 
-        if not uploaded_file:
+            uploaded_file = None
+            if source_option == "Import Scored CSV":
+                uploaded_file = st.file_uploader(
+                    "Upload Scored Results CSV",
+                    type=['csv'],
+                    key="cluster_csv_upload"
+                )
+
+        if source_option == "Import Scored CSV" and not uploaded_file:
             st.info("ℹ️ Please upload a scored CSV file to proceed.")
             return
+            
+        if source_option == "Use Results from Step 3":
+            if not self.state.get('scoring_complete') or self.state.get('final_scored_results') is None:
+                st.info("ℹ️ No final scored results found from Step 3. Please complete Step 3 first or upload a CSV file.")
+                return
 
         # ── Section 2: Capacity Constraints ───────────────────────────
         with st.container(border=True):
@@ -84,9 +99,14 @@ class ClusterAnalysisTab(BaseTab):
         run_clustering = st.button("🚀 Run Clustering & Scoring", type="primary", use_container_width=True)
 
         if run_clustering:
-            self._execute_pipeline(
-                uploaded_file, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage
-            )
+            if source_option == "Import Scored CSV":
+                self._execute_pipeline(
+                    uploaded_file, True, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage
+                )
+            else:
+                self._execute_pipeline(
+                    self.state.final_scored_results, False, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage
+                )
 
         # ── Display Results ───────────────────────────────────────────
         self._render_results()
@@ -184,21 +204,26 @@ class ClusterAnalysisTab(BaseTab):
     # Pipeline Execution
     # ─────────────────────────────────────────────────────────────────────
 
-    def _execute_pipeline(self, uploaded_file, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage):
+    def _execute_pipeline(self, data_source, is_file, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage):
         """Run the complete clustering + scoring pipeline."""
         project_type = st.session_state.get("project_type", "Solar")
 
         with st.spinner("Processing spatial topologies, clustering, and scoring... this may take a moment."):
+            temp_path = None
             try:
-                # Save uploaded file to temp
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                    tmp.write(uploaded_file.getvalue())
-                    temp_path = tmp.name
+                # Prepare data source
+                if is_file:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
+                        tmp.write(data_source.getvalue())
+                        temp_path = tmp.name
+                    data_input = temp_path
+                else:
+                    data_input = data_source
 
                 try:
                     # ── Step A: Clustering ─────────────────────
                     # Load data for cell-level reference
-                    cell_gdf = ClusterEngine.load_and_prepare_data(temp_path)
+                    cell_gdf = ClusterEngine.load_and_prepare_data(data_input)
                     cell_gdf = ClusterEngine.calculate_cell_capacities(
                         cell_gdf, nominal_capacity_mw, adjust_for_coverage
                     )
@@ -220,7 +245,8 @@ class ClusterAnalysisTab(BaseTab):
                         )
 
                 finally:
-                    os.unlink(temp_path)
+                    if temp_path and os.path.exists(temp_path):
+                        os.unlink(temp_path)
 
                 self.state.cluster_results = cluster_gdf
                 st.success("✅ Clustering & scoring complete!")
