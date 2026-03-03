@@ -15,6 +15,7 @@ from engines.cluster_engine import ClusterEngine
 from engines.cluster_scorer import ClusterScorer
 import tempfile
 import os
+import json
 
 
 class ClusterAnalysisTab(BaseTab):
@@ -95,17 +96,24 @@ class ClusterAnalysisTab(BaseTab):
         with st.container(border=True):
             self._render_scoring_rules_section()
 
+        # ── Section 4: Reference Data Configuration ─────────────────────
+        with st.container(border=True):
+            self._render_reference_data_section()
+
         # ── Action Button ──────────────────────────────────────────────
         run_clustering = st.button("🚀 Run Clustering & Scoring", type="primary", use_container_width=True)
 
         if run_clustering:
+            fin_config = st.session_state.get("financial_constants", None)
+            cp_config = st.session_state.get("cp_values", None)
+            
             if source_option == "Import Scored CSV":
                 self._execute_pipeline(
-                    uploaded_file, True, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage
+                    uploaded_file, True, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage, fin_config, cp_config
                 )
             else:
                 self._execute_pipeline(
-                    self.state.final_scored_results, False, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage
+                    self.state.final_scored_results, False, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage, fin_config, cp_config
                 )
 
         # ── Display Results ───────────────────────────────────────────
@@ -201,10 +209,94 @@ class ClusterAnalysisTab(BaseTab):
         st.caption(f"📊 {len(rules)} rules configured | Mode: {mode_label}")
 
     # ─────────────────────────────────────────────────────────────────────
+    # Reference Data UI (Financial & Engineering)
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _render_reference_data_section(self):
+        """Render the editable financial constants and CP values."""
+        st.subheader("4. Technical & Financial Reference Data")
+        st.markdown(
+            "Configure unit costs for transmission lines, substations, and wind turbine power coefficients (CP). "
+            "These values are used in Phase 5 to calculate CAPEX, Energy Yield, and LCOE."
+        )
+
+        project_type = st.session_state.get("project_type", "Solar")
+
+        # 1. Financial Constants
+        fin_key = "financial_constants"
+        config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
+        fin_path = os.path.join(config_dir, "financial_constants.json")
+
+        if fin_key not in st.session_state:
+            if os.path.exists(fin_path):
+                with open(fin_path, "r", encoding="utf-8") as f:
+                    st.session_state[fin_key] = json.load(f)
+            else:
+                # Fallback defaults if file is missing
+                st.session_state[fin_key] = {
+                    "pv_capex_per_mw": 500000,
+                    "wind_capex_per_mw": 1000000,
+                    "transmission": [{"type": "Line", "kv": 110, "capacity_min": 0, "capacity_max": 30, "cost_per_km": 170000, "fixed_cost": 0}]
+                }
+
+        fin_data = st.session_state[fin_key]
+
+        with st.expander("💰 Edit Financial Constants (CAPEX)", expanded=False):
+            t1, t2 = st.tabs(["Global Metrics", "Transmission Costs"])
+            
+            with t1:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    fin_data["pv_capex_per_mw"] = st.number_input("PV Base CAPEX ($/MW)", value=int(fin_data.get("pv_capex_per_mw", 500000)))
+                    fin_data["substation_pv_ratio"] = st.number_input("Solar Substation Cost Ratio", value=float(fin_data.get("substation_pv_ratio", 0.08)), format="%.3f")
+                    fin_data["land_cost_ratio"] = st.number_input("Land Expropriation Ratio", value=float(fin_data.get("land_cost_ratio", 0.1)), format="%.2f")
+                with col_b:
+                    fin_data["wind_capex_per_mw"] = st.number_input("Wind Base CAPEX ($/MW)", value=int(fin_data.get("wind_capex_per_mw", 1000000)))
+                    fin_data["substation_wind_ratio"] = st.number_input("Wind Substation Cost Ratio", value=float(fin_data.get("substation_wind_ratio", 0.06)), format="%.3f")
+                    fin_data["line_expropriation_ratio"] = st.number_input("Line Expropriation Ratio", value=float(fin_data.get("line_expropriation_ratio", 0.1)), format="%.2f")
+                    
+                st.session_state[fin_key] = fin_data # Save back to state
+
+            with t2:
+                st.write("**Transmission Infrastructure Costs**")
+                trans_df = pd.DataFrame(fin_data.get("transmission", []))
+                edited_trans = st.data_editor(trans_df, num_rows="dynamic", use_container_width=True, key="transmission_editor")
+                if not edited_trans.empty:
+                    st.session_state[fin_key]["transmission"] = edited_trans.to_dict('records')
+
+        # 2. CP Values (Wind Only)
+        if project_type in ["OnShore", "OffShore"]:
+            cp_key = "cp_values"
+            cp_path = os.path.join(config_dir, "cp_values.json")
+            
+            if cp_key not in st.session_state:
+                if os.path.exists(cp_path):
+                    with open(cp_path, "r", encoding="utf-8") as f:
+                        st.session_state[cp_key] = json.load(f)
+                else:
+                    st.session_state[cp_key] = [{"Wind speed": 0, "Cp": 0.0}]
+
+            with st.expander("💨 Edit Wind Power Coefficients (CP)", expanded=False):
+                cp_df = pd.DataFrame(st.session_state[cp_key])
+                edited_cp = st.data_editor(cp_df, num_rows="dynamic", use_container_width=True, key="cp_editor")
+                if not edited_cp.empty:
+                    st.session_state[cp_key] = edited_cp.to_dict('records')
+
+        # Save Config Button
+        if st.button("💾 Save Reference Data permanently", key="save_ref_data"):
+            os.makedirs(config_dir, exist_ok=True)
+            with open(fin_path, "w", encoding="utf-8") as f:
+                json.dump(st.session_state[fin_key], f, indent=4)
+            if project_type in ["OnShore", "OffShore"] and "cp_values" in st.session_state:
+                with open(os.path.join(config_dir, "cp_values.json"), "w", encoding="utf-8") as f:
+                    json.dump(st.session_state["cp_values"], f, indent=4)
+            st.toast("✅ Reference data saved successfully!")
+
+    # ─────────────────────────────────────────────────────────────────────
     # Pipeline Execution
     # ─────────────────────────────────────────────────────────────────────
 
-    def _execute_pipeline(self, data_source, is_file, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage):
+    def _execute_pipeline(self, data_source, is_file, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage, fin_config, cp_config):
         """Run the complete clustering + scoring pipeline."""
         project_type = st.session_state.get("project_type", "Solar")
 
@@ -241,6 +333,8 @@ class ClusterAnalysisTab(BaseTab):
                             cluster_gdf=cluster_gdf,
                             cell_gdf=cell_gdf,
                             scoring_rules=scoring_rules,
+                            financial_constants=fin_config,
+                            cp_values=cp_config,
                             project_type=project_type
                         )
 
@@ -287,7 +381,10 @@ class ClusterAnalysisTab(BaseTab):
                 avg_score = results_gdf["FINAL_GRID_SCORE"].mean()
                 st.metric("Avg Grid Score", f"{avg_score:.2f}")
         with summary_cols[3]:
-            if "Within_Cells_Count" in results_gdf.columns:
+            if "LCOE($/MWh)" in results_gdf.columns:
+                avg_lcoe = results_gdf["LCOE($/MWh)"].mean()
+                st.metric("Avg LCOE ($/MWh)", f"${avg_lcoe:.2f}")
+            elif "Within_Cells_Count" in results_gdf.columns:
                 total_cells = results_gdf["Within_Cells_Count"].sum()
                 st.metric("Total Cells in Clusters", f"{int(total_cells):,}")
 
@@ -326,6 +423,7 @@ class ClusterAnalysisTab(BaseTab):
             'Nearest_Connection_Distance_km', 'Nearest_Connection_Score',
             'Nearest_Weight_%', 'Overall_Score',
             'Mean_Transport_Total', 'Mean_Slope_mean',
+            'Capacity Factor', 'Scaled_Overall_Score'
         ]
 
         # Add mode-specific columns
@@ -333,12 +431,18 @@ class ClusterAnalysisTab(BaseTab):
         if project_type == "Solar":
             priority_cols.extend(['Solar_irradiation_rate', 'Mean_Temperature_mean'])
         else:
-            priority_cols.extend(['Connection_Grid', 'Mean_Altitude', 'Mean_Wind_mean'])
+            priority_cols.extend(['Connection_Grid', 'Mean_Altitude', 'Mean_Wind_mean', 'CP'])
 
         # Add transmission distance columns
         priority_cols.extend([
             'Min_Dist_110kV_Line', 'Min_Dist_220kV_Line', 'Min_Dist_400kV_Line',
             'Min_Dist_110kV_Substation', 'Min_Dist_220kV_Substation', 'Min_Dist_400kV_Substation'
+        ])
+
+        # Add financial metrics
+        priority_cols.extend([
+            'LİNE CAPEX', 'TOTAL CAPEX', 'CAPEX/MW($)', 'Yearly energy(MWh)', 
+            'LCOE($/MWh)', 'Payback Period (Yrs)'
         ])
 
         # Filter to existing columns

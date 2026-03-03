@@ -1,0 +1,78 @@
+{
+    "pv_capex_per_mw": 500000,
+    "wind_capex_per_mw": 1000000,
+    "substation_pv_ratio": 0.08,
+    "substation_wind_ratio": 0.06,
+    "line_expropriation_ratio": 0.1,
+    "land_cost_ratio": 0.1,
+    "transport_network_base": 400000,
+    "transport_network_per_mw": 500,
+    "lines": [],
+    "substations": [],
+    "transmission": [
+        {
+            "type": "Line",
+            "kv": 110,
+            "capacity_min": 0,
+            "capacity_max": 30,
+            "cost_per_km": 170000,
+            "fixed_cost": 0
+        },
+        {
+            "type": "Line",
+            "kv": 110,
+            "capacity_min": 30,
+            "capacity_max": 70,
+            "cost_per_km": 170000,
+            "fixed_cost": 0
+        },
+        {
+            "type": "Line",
+            "kv": 220,
+            "capacity_min": 70,
+            "capacity_max": 180,
+            "cost_per_km": 280000,
+            "fixed_cost": 0
+        },
+        {
+            "type": "Line",
+            "kv": 400,
+            "capacity_min": 180,
+            "capacity_max": 400,
+            "cost_per_km": 400000,
+            "fixed_cost": 0
+        },
+        {
+            "type": "Substation",
+            "kv": 110,
+            "capacity_min": 0,
+            "capacity_max": 30,
+            "cost_per_km": 170000,
+            "fixed_cost": 500000
+        },
+        {
+            "type": "Substation",
+            "kv": 110,
+            "capacity_min": 30,
+            "capacity_max": 70,
+            "cost_per_km": 170000,
+            "fixed_cost": 1000000
+        },
+        {
+            "type": "Substation",
+            "kv": 220,
+            "capacity_min": 70,
+            "capacity_max": 180,
+            "cost_per_km": 280000,
+            "fixed_cost": 3000000
+        },
+        {
+            "type": "Substation",
+            "kv": 400,
+            "capacity_min": 180,
+            "capacity_max": 400,
+            "cost_per_km": 400000,
+            "fixed_cost": 8000000
+        }
+    ]
+}

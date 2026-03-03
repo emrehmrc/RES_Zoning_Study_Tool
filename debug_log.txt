@@ -1,0 +1,34 @@
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = None
+DEBUG: project_type = None
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard
+DEBUG: project_type = OffShore
+DEBUG: ConfigManager.get_config received 'OffShore' (type: <class 'str'>)
+DEBUG: Config Title = Off-Shore Wind Zoning Dashboard

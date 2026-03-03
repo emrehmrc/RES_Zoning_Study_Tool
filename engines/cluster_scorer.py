@@ -18,6 +18,7 @@ Columns added:
 import pandas as pd
 import numpy as np
 import logging
+from engines.financial_scorer import FinancialScorer
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -137,10 +138,10 @@ class ClusterScorer:
     }
 
     @classmethod
-    def score_clusters(cls, cluster_gdf, cell_gdf, scoring_rules, project_type="Solar"):
+    def score_clusters(cls, cluster_gdf, cell_gdf, scoring_rules, financial_constants=None, cp_values=None, project_type="Solar"):
         """
         Main entry point. Enriches the cluster-level GeoDataFrame with
-        transmission scoring columns.
+        transmission scoring columns, and then calculates financial metrics.
 
         Parameters
         ----------
@@ -152,6 +153,10 @@ class ClusterScorer:
             Used for aggregating additional columns.
         scoring_rules : list[dict]
             List of scoring rule dicts (from the UI / config).
+        financial_constants : dict, optional
+            Dictionary of financial rates. If None, defaults will be used inside FinancialScorer.
+        cp_values : list[dict], optional
+            List of CP lookup values for Wind mode.
         project_type : str
             "Solar", "OnShore", or "OffShore".
 
@@ -199,6 +204,28 @@ class ClusterScorer:
 
         # ── 6. Overall Score ──────────────────────────────────────
         df["Overall_Score"] = df["Mean_Cell_OverallScore"] + df["Nearest_Weight_%"]
+
+        # ── 7. Financial & Energy Metrics ─────────────────────────
+        # Use defaults if config wasn't passed down
+        if financial_constants is None:
+            financial_constants = {
+                "pv_capex_per_mw": 500000, "wind_capex_per_mw": 1000000,
+                "substation_pv_ratio": 0.08, "substation_wind_ratio": 0.06,
+                "line_expropriation_ratio": 0.1, "land_cost_ratio": 0.1,
+                "transport_network_base": 400000, "transport_network_per_mw": 500,
+                "transmission": [
+                    {"type": "Line", "kv": 110, "capacity_min": 0, "capacity_max": 30, "cost_per_km": 170000, "fixed_cost": 0},
+                    {"type": "Line", "kv": 110, "capacity_min": 30, "capacity_max": 70, "cost_per_km": 170000, "fixed_cost": 0},
+                    {"type": "Line", "kv": 220, "capacity_min": 70, "capacity_max": 180, "cost_per_km": 280000, "fixed_cost": 0},
+                    {"type": "Line", "kv": 400, "capacity_min": 180, "capacity_max": 400, "cost_per_km": 400000, "fixed_cost": 0},
+                    {"type": "Substation", "kv": 110, "capacity_min": 0, "capacity_max": 30, "cost_per_km": 170000, "fixed_cost": 500000},
+                    {"type": "Substation", "kv": 110, "capacity_min": 30, "capacity_max": 70, "cost_per_km": 170000, "fixed_cost": 1000000},
+                    {"type": "Substation", "kv": 220, "capacity_min": 70, "capacity_max": 180, "cost_per_km": 280000, "fixed_cost": 3000000},
+                    {"type": "Substation", "kv": 400, "capacity_min": 180, "capacity_max": 400, "cost_per_km": 400000, "fixed_cost": 8000000}
+                ]
+            }
+
+        df = FinancialScorer.calculate_financials(df, financial_constants, cp_values, project_type)
 
         logging.info(f"ClusterScorer: finished. Output has {len(df.columns)} columns.")
         return df
