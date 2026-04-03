@@ -111,6 +111,12 @@ class FinancialScorer:
             # Capacity Factor
             df["Capacity Factor"] = df["Yearly energy(MWh)"] / (8760 * capacity)
 
+        # Override Capacity Factor if user specified a fixed value
+        user_cf = financial_constants.get("capacity_factor")
+        if user_cf is not None and user_cf > 0:
+            df["Capacity Factor"] = float(user_cf)
+            df["Yearly energy(MWh)"] = float(user_cf) * 8760 * capacity
+
         # ── 3. General Financial Metrics ─────────────────────────────────
         df["CAPEX/MW($)"] = df["TOTAL CAPEX"] / capacity
         

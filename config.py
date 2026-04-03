@@ -7,11 +7,11 @@ class Config:
     
     BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
     OUTPUT_DIR = BASE_DIR / "outputs"
-    DATA_DIR = BASE_DIR / "data"
+    DATA_DIR = BASE_DIR / "data"   
     TEMP_DIR = BASE_DIR / "temp"
 
     # Default path for NUTS data
-    NUTS_PATH = r"C:\Users\boray.guvenc\OneDrive - MRC\Masaüstü\yedek_final_final\Dashboard\Input\NUTS_RG_01M_2021_4326.geojson"
+    NUTS_PATH = BASE_DIR / "NUTS_RG_01M_2021_4326.geojson"
 
     # Default path for EEZ (Exclusive Economic Zone) data - used for Off-Shore mode
     EEZ_PATH = BASE_DIR / "Off_shore_shapes" / "EEZ_Europe.shp"

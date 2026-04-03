@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: dashboard_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./temp:/app/temp
+    environment:
+      - DJANGO_DEBUG=False
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dashboard_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    restart: unless-stopped

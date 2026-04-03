@@ -1,0 +1,30 @@
+# VCS and editor
+.git
+.gitignore
+.vscode
+
+# Python virtual environments
+venv/
+venv2/
+venv3/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Frontend build artifacts
+frontend/.next/
+frontend/node_modules/
+
+# Backend/runtime artifacts
+temp/
+outputs/
+*.log
+debug_log.txt
+
+# Local test/data caches
+.pytest_cache/
+.mypy_cache/
+
+# OS files
+.DS_Store
+Thumbs.db

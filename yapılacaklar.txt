@@ -1,0 +1,20 @@
+* File explorer - Directoru path k9ısmında konulması lazım
+* (Opt) harita buyutulecek,
+* (Opt/must) Harita baska library ile yapılacak hızlandırıalcak ve
+harita uzerinde layerlar goruntulenebilecek
+* Step 4: Cluster Analysis kısmında "Scoring Rules" tabı ismi "Connection Rules"
+ile değiştirilecek.
+* Gene aynı bolumde "Cp values" tabı ismi "Technical Constants" ile değişecek.
+* Financial Constants bölümünde "Save Financial Constants" butonun
+üzerinde "Transmission Lines" yazıyor, onu silelim.
+* Aynı bölümde Run Analysis butonun altnda "Clustering & scoring complete!"
+yazan kısımda aşağıda Connection Types ve Voltage Distribution diyor onları
+da silelim.
+* Mode= Solar olduğunda Technical Constants kısmında wind ile alakalı
+variable'lar olmayacak.
+* Sonuçlara dair, sonuclar da capacity factor yok dolayısıyla yearly energy
+ve LCOE hesabı yok, dolayısıyla kodda (tercihen arayüz üzerinde) 
+capacity factor değiştirilebilir bir parametre olarak eklenmeli.
+* - CHunk by chunk, 99 km.
+
+

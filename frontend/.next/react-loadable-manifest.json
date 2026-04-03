@@ -1,0 +1,15 @@
+{
+  "components\\CountryMapPreview.tsx -> leaflet": {
+    "id": "components\\CountryMapPreview.tsx -> leaflet",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_leaflet_dist_leaflet-src_js.js"
+    ]
+  },
+  "components\\GridizationTab.tsx -> ./CountryMapPreview": {
+    "id": "components\\GridizationTab.tsx -> ./CountryMapPreview",
+    "files": [
+      "static/css/_app-pages-browser_src_components_CountryMapPreview_tsx.css",
+      "static/chunks/_app-pages-browser_src_components_CountryMapPreview_tsx.js"
+    ]
+  }
+}

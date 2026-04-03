@@ -2,6 +2,7 @@
 Universal Raster Distance & Coverage Calculator - ENHANCED
 Now supports: Distance, Coverage, Mean, Max, Min, and Categorical modes
 """
+import gc
 import os
 import sys
 import ctypes
@@ -13,6 +14,69 @@ import pandas as pd
 from osgeo import gdal
 from multiprocessing import Pool, cpu_count
 import time
+import psutil
+from pyproj.exceptions import ProjError
+
+# ── Fix PROJ_LIB before any CRS operations ──────────────────────────
+# GDAL 3.11 ships PROJ 9.7 which requires proj.db with
+# DATABASE.LAYOUT.VERSION.MINOR >= 6.  pyproj's bundled copy is only
+# minor=4, so we must prefer the newest proj.db available.
+def _init_proj_env():
+    """Set PROJ_LIB to the newest compatible proj data directory."""
+    import sqlite3
+
+    sp = os.path.join(sys.prefix, 'Lib', 'site-packages')
+    # Candidate directories ordered by typical freshness
+    candidate_dirs = []
+    # rasterio ships its own PROJ data
+    candidate_dirs.append(os.path.join(sp, 'rasterio', 'proj_data'))
+    # osgeo (GDAL wheel)
+    candidate_dirs.append(os.path.join(sp, 'osgeo', 'data', 'proj'))
+    # pyogrio
+    candidate_dirs.append(os.path.join(sp, 'pyogrio', 'proj_data'))
+    # pyproj
+    try:
+        import pyproj
+        candidate_dirs.append(pyproj.datadir.get_data_dir())
+    except Exception:
+        pass
+    # fiona
+    candidate_dirs.append(os.path.join(sp, 'fiona', 'proj_data'))
+
+    best_dir = None
+    best_minor = -1
+    for d in candidate_dirs:
+        db = os.path.join(d, 'proj.db') if d else ''
+        if not os.path.isfile(db):
+            continue
+        try:
+            conn = sqlite3.connect(db)
+            row = conn.execute(
+                "SELECT value FROM metadata "
+                "WHERE key='DATABASE.LAYOUT.VERSION.MINOR'"
+            ).fetchone()
+            conn.close()
+            minor = int(row[0]) if row else 0
+        except Exception:
+            minor = 0
+        if minor > best_minor:
+            best_minor = minor
+            best_dir = d
+
+    if best_dir:
+        os.environ['PROJ_LIB'] = best_dir
+        os.environ['PROJ_DATA'] = best_dir  # some PROJ builds read this
+        try:
+            import pyproj
+            pyproj.datadir.set_data_dir(best_dir)
+        except Exception:
+            pass
+
+_init_proj_env()
+
+# Limit GDAL's internal block cache to prevent allocation failures with large rasters
+gdal.SetConfigOption('GDAL_CACHEMAX', '512')
+gdal.SetConfigOption('GTIFF_SRS_SOURCE', 'EPSG')
 
 
 def get_short_path(long_path):
@@ -26,13 +90,24 @@ def init_worker_env():
     """Initializes the GDAL/PROJ environment for each parallel worker."""
     from osgeo import gdal
     
-    gdal.UseExceptions()
-    venv_base = get_short_path(sys.prefix)
-    proj_path = os.path.join(venv_base, 'Lib', 'site-packages', 'osgeo', 'data', 'proj')
-    
-    os.environ['PROJ_LIB'] = proj_path
+    _init_proj_env()
     gdal.SetConfigOption('GTIFF_SRS_SOURCE', 'EPSG')
+    # Limit GDAL block cache to 256 MB per worker to prevent allocation failures
+    gdal.SetConfigOption('GDAL_CACHEMAX', '256')
     gdal.UseExceptions()
+
+
+def _get_safe_worker_count(n_workers=None, per_worker_mb=512):
+    """Determine safe number of workers based on available memory."""
+    try:
+        available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        max_by_mem = max(1, int(available_mb / per_worker_mb))
+        cpu_based = max(1, cpu_count() - 1) if n_workers is None else n_workers
+        safe = min(cpu_based, max_by_mem)
+        print(f"   Memory-safe workers: {safe} (available: {available_mb:.0f} MB, per-worker estimate: {per_worker_mb} MB)")
+        return safe
+    except Exception:
+        return max(1, (n_workers or 2))
 
 
 # MOVED OUTSIDE CLASS - Required for Windows multiprocessing pickling
@@ -69,6 +144,52 @@ class UniversalRasterScorer:
     def __init__(self, config=None):
         self.config = config or {}
         self.proximity_cache = {}
+        self.max_window_mb = 1024  # hard cap per processing window
+
+    def _transform_grid_to_raster_crs(self, grid_gdf, raster_crs):
+        """Safely transform grid to raster CRS with fallbacks for problematic CRS metadata."""
+        if grid_gdf.crs is None:
+            # Grid is generated in EPSG:3857 in this project; enforce it if missing.
+            grid_gdf = grid_gdf.set_crs("EPSG:3857", allow_override=True)
+
+        if raster_crs is None:
+            # No raster CRS metadata; assume same CRS to avoid hard-failing.
+            return grid_gdf
+
+        try:
+            return grid_gdf.to_crs(raster_crs)
+        except ProjError:
+            # Reinitialize PROJ env in case external apps poisoned PROJ_LIB at runtime.
+            _init_proj_env()
+            try:
+                return grid_gdf.to_crs(raster_crs)
+            except ProjError:
+                pass
+
+        crs_text = str(raster_crs).upper()
+
+        # Some rasters store CRS as LOCAL_CS with unit EPSG codes only (e.g. EPSG:9001).
+        # Map known names to their real projected CRS EPSG code.
+        local_name_to_epsg = {
+            'ALBANIA TM 2010': 'EPSG:6870',
+            'ALBANIA LCC 2010': 'EPSG:6962',
+        }
+        for local_name, epsg_code in local_name_to_epsg.items():
+            if local_name in crs_text:
+                return grid_gdf.to_crs(epsg_code)
+
+        # Fallback heuristics for common CRS cases where source metadata is odd.
+        if '4326' in crs_text:
+            return grid_gdf.to_crs("EPSG:4326")
+        if '3857' in crs_text or '900913' in crs_text:
+            if str(grid_gdf.crs).upper() in ['EPSG:3857', '3857']:
+                return grid_gdf
+            return grid_gdf.to_crs("EPSG:3857")
+
+        raise ValueError(
+            f"CRS transform failed. grid_crs={grid_gdf.crs}, raster_crs={raster_crs}, "
+            f"PROJ_LIB={os.environ.get('PROJ_LIB')}"
+        )
     
     def _compute_proximity_gdal(self, raster_path, target_value, window=None, max_distance_km=100):
         """
@@ -179,13 +300,31 @@ class UniversalRasterScorer:
         
         proximity_meters = np.where(proximity_meters == -9999, 999999, proximity_meters)
         
+        # Explicitly close GDAL datasets to free memory
+        src_band = global_band = prox_band = None
         src_ds = global_src_ds = prox_ds = None
+        del zero_array
+        gc.collect()
         
         return proximity_meters
     
+    def _estimate_raster_memory_mb(self, raster_path, grid_gdf):
+        """Estimate memory needed to load the raster window for the given grid."""
+        try:
+            with rasterio.open(raster_path) as src:
+                grid_transformed = self._transform_grid_to_raster_crs(grid_gdf, src.crs)
+                xmin, ymin, xmax, ymax = grid_transformed.total_bounds
+                window = from_bounds(xmin, ymin, xmax, ymax, src.transform)
+                # float32 = 4 bytes per pixel, proximity doubles it
+                pixels = int(window.height) * int(window.width)
+                return (pixels * 4 * 3) / (1024 * 1024)  # 3x for data + proximity + result
+        except Exception:
+            return 999999
+
     def calculate_layer(self, grid_gdf, raster_path, layer_prefix, analysis_modes=None, target_value=1):
         """
-        Universal layer calculation supporting multiple analysis modes
+        Universal layer calculation supporting multiple analysis modes.
+        Automatically chunks large grids to avoid memory allocation failures.
         
         Parameters:
         -----------
@@ -206,12 +345,94 @@ class UniversalRasterScorer:
         """
         if analysis_modes is None:
             analysis_modes = ['distance']
-        
+
+        # Check if we need to chunk to avoid memory errors
+        est_mb = self._estimate_raster_memory_mb(raster_path, grid_gdf)
+        try:
+            available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        except Exception:
+            available_mb = 4096
+
+        # If estimated memory is high, split into spatial chunks (even for small grids).
+        # A small number of cells can still span a huge extent and trigger large allocations.
+        if est_mb > available_mb * 0.6 or est_mb > self.max_window_mb:
+            n_chunks = max(2, int(np.ceil(est_mb / max(256, available_mb * 0.35))))
+            n_chunks = min(max(2, n_chunks), 32)
+            print(f"   ! Large raster detected ({est_mb:.0f} MB est, {available_mb:.0f} MB avail). Splitting into {n_chunks} chunks.")
+            chunks = self._split_grid_spatially(grid_gdf, n_chunks)
+            chunk_results = []
+            for ci, chunk in enumerate(chunks):
+                print(f"   > Processing chunk {ci+1}/{len(chunks)} ({len(chunk)} cells)...")
+                chunk_result = self._calculate_layer_with_retry(
+                    chunk,
+                    raster_path,
+                    layer_prefix,
+                    analysis_modes,
+                    target_value,
+                    depth=0,
+                )
+                chunk_results.append(chunk_result)
+                gc.collect()
+            return pd.concat(chunk_results, ignore_index=True)
+
+        return self._calculate_layer_with_retry(
+            grid_gdf,
+            raster_path,
+            layer_prefix,
+            analysis_modes,
+            target_value,
+            depth=0,
+        )
+
+    def _calculate_layer_with_retry(self, grid_gdf, raster_path, layer_prefix, analysis_modes, target_value, depth=0):
+        """Retry layer calculation by recursively sub-chunking when allocation errors occur."""
+        try:
+            return self._calculate_layer_inner(grid_gdf, raster_path, layer_prefix, analysis_modes, target_value)
+        except (MemoryError, ValueError) as e:
+            msg = str(e).lower()
+            is_alloc_error = (
+                'unable to allocate' in msg
+                or 'array is too big' in msg
+                or 'out of memory' in msg
+                or 'cannot allocate memory' in msg
+            )
+            if not is_alloc_error:
+                raise
+            if len(grid_gdf) <= 1 or depth >= 6:
+                raise RuntimeError(
+                    f"Allocation error after retries (depth={depth}, cells={len(grid_gdf)}): {e}"
+                )
+
+            print(
+                f"   ! Allocation error at depth {depth} for {len(grid_gdf)} cells. "
+                f"Sub-chunking and retrying..."
+            )
+            sub_chunks = self._split_grid_spatially(grid_gdf, 2)
+            sub_results = []
+            for sub in sub_chunks:
+                if len(sub) == 0:
+                    continue
+                sub_results.append(
+                    self._calculate_layer_with_retry(
+                        sub,
+                        raster_path,
+                        layer_prefix,
+                        analysis_modes,
+                        target_value,
+                        depth=depth + 1,
+                    )
+                )
+            if not sub_results:
+                raise RuntimeError("Sub-chunking produced no cells during allocation recovery.")
+            return pd.concat(sub_results, ignore_index=True)
+
+    def _calculate_layer_inner(self, grid_gdf, raster_path, layer_prefix, analysis_modes, target_value):
+        """Core layer calculation - operates on a grid subset that fits in memory."""
         safe_nodata = 255
         
         with rasterio.open(raster_path) as src:
             raster_crs = src.crs
-            grid_transformed = grid_gdf.to_crs(raster_crs)
+            grid_transformed = self._transform_grid_to_raster_crs(grid_gdf, raster_crs)
             
             xmin, ymin, xmax, ymax = grid_transformed.total_bounds
             window = from_bounds(xmin, ymin, xmax, ymax, src.transform)
@@ -229,9 +450,11 @@ class UniversalRasterScorer:
                 # Distance calculation
                 proximity_meters = self._compute_proximity_gdal(raster_path, target_value, window)
                 dist_km_array = (proximity_meters / 1000.0).astype(np.float32)
+                del proximity_meters  # Free the raw array immediately
                 
                 dist_stats = zonal_stats(grid_transformed, dist_km_array, affine=win_transform, 
                                         stats=['min'], nodata=safe_nodata, all_touched=True)
+                del dist_km_array  # Free after zonal_stats
                 
                 for i, s in enumerate(dist_stats):
                     min_dist = s['min'] if s['min'] is not None else 99999
@@ -299,6 +522,10 @@ class UniversalRasterScorer:
                 if f'{layer_prefix}_coverage_pct' in row and row[f'{layer_prefix}_coverage_pct'] > 0:
                     results[i][f'{layer_prefix}_dist_km'] = 0.0
         
+        # Explicitly free large arrays to reduce memory pressure
+        del raster_data
+        gc.collect()
+        
         return pd.DataFrame(results)
     
     def _split_grid_spatially(self, grid_gdf, n_chunks):
@@ -333,10 +560,10 @@ class UniversalRasterScorer:
     def calculate_layers_adaptive(self, grid_gdf, layer_configs, 
                               chunk_size=5000, n_workers=None):
         """
-        Adaptive layer calculation with automatic strategy selection
+        Adaptive layer calculation with automatic strategy selection.
+        Memory-aware: adjusts worker count and chunking based on available RAM.
         """
-        if n_workers is None:
-            n_workers = max(1, cpu_count() - 1)
+        n_workers = _get_safe_worker_count(n_workers)
         
         n_cells = len(grid_gdf)
         n_layers = len(layer_configs)
@@ -350,19 +577,39 @@ class UniversalRasterScorer:
         print(f"Layers: {n_layers}")
         print(f"Available workers: {n_workers}")
         
-        # Strategy selection
-        if n_cells < 5000:
-            print(f"* Strategy: LAYER PARALLELIZATION (small grid)")
+        # Estimate total raster size across all layers
+        total_est_mb = sum(
+            self._estimate_raster_memory_mb(layer['path'], grid_gdf)
+            for layer in layer_configs
+        )
+        try:
+            available_mb = psutil.virtual_memory().available / (1024 * 1024)
+        except Exception:
+            available_mb = 4096
+
+        any_layer_large = any(
+            self._estimate_raster_memory_mb(layer['path'], grid_gdf) > 500
+            for layer in layer_configs
+        )
+
+        print(f"Total estimated raster memory: {total_est_mb:.0f} MB")
+        print(f"Available memory: {available_mb:.0f} MB")
+        print(f"Any large layer (>500 MB): {any_layer_large}")
+        
+        # Strategy selection — never parallelize layers when rasters are large
+        if any_layer_large or total_est_mb > available_mb * 0.4 or n_layers >= 3:
+            # Process layers one at a time to avoid GDAL cache exhaustion
+            print(f"* Strategy: SEQUENTIAL-LAYERS (large rasters or many layers)")
+            print(f"{'='*60}\n")
+            result = self._process_layers_sequential(grid_gdf, layer_configs, n_workers)
+        
+        elif n_cells < 5000 and n_layers <= 2:
+            print(f"* Strategy: LAYER PARALLELIZATION (small grid, few layers)")
             print(f"{'='*60}\n")
             result = self._parallel_by_layers(grid_gdf, layer_configs, n_workers)
         
-        elif n_cells < 20000 and n_layers > 5:
-            print(f"* Strategy: HYBRID (medium grid, many layers)")
-            print(f"{'='*60}\n")
-            result = self._process_grid_chunked(grid_gdf, layer_configs, chunk_size, n_workers)
-        
         else:
-            print(f"* Strategy: GRID-CHUNKED (large grid or single layer)")
+            print(f"* Strategy: GRID-CHUNKED (large grid)")
             print(f"   Using {n_workers} parallel chunks")
             print(f"{'='*60}\n")
             result = self._process_grid_chunked(grid_gdf, layer_configs, chunk_size, n_workers)
@@ -380,8 +627,10 @@ class UniversalRasterScorer:
         return result
     
     def _parallel_by_layers(self, grid_gdf, layer_configs, n_workers):
-        """Process all layers in parallel"""
+        """Process layers in parallel — only safe for small/few rasters."""
         print(f"> Processing all {len(layer_configs)} layers in parallel...")
+        
+        safe_workers = min(_get_safe_worker_count(n_workers), len(layer_configs))
         
         args_list = [
             (grid_gdf, layer['path'], layer['prefix'], 
@@ -390,8 +639,7 @@ class UniversalRasterScorer:
             for layer in layer_configs
         ]
         
-        with Pool(processes=n_workers, initializer=init_worker_env) as pool:
-            # Use the module-level function instead of class method
+        with Pool(processes=safe_workers, initializer=init_worker_env) as pool:
             results = pool.starmap(_process_layer_worker, args_list)
         
         merged = grid_gdf[['cell_id', 'wkt']].copy()
@@ -399,11 +647,43 @@ class UniversalRasterScorer:
             merged = merged.merge(result, on='cell_id', how='left')
         
         return merged
+
+    def _process_layers_sequential(self, grid_gdf, layer_configs, n_workers):
+        """
+        Process layers ONE AT A TIME to avoid GDAL block-cache exhaustion.
+        Each layer still uses spatial chunking internally via calculate_layer().
+        """
+        merged = grid_gdf[['cell_id', 'wkt']].copy()
+
+        for layer_idx, layer in enumerate(layer_configs):
+            print(f"\n{'-'*60}")
+            print(f"> Layer {layer_idx+1}/{len(layer_configs)}: {layer['prefix']}")
+            print(f"{'-'*60}")
+            layer_start = time.time()
+
+            layer_result = self.calculate_layer(
+                grid_gdf,
+                layer['path'],
+                layer['prefix'],
+                layer.get('analysis_modes', ['distance']),
+                layer.get('target_value', 1),
+            )
+
+            merged = merged.merge(layer_result, on='cell_id', how='left')
+
+            # Aggressively free memory between layers
+            del layer_result
+            gc.collect()
+
+            print(f"   V Completed in {time.time()-layer_start:.2f}s")
+
+        return merged
     
     def _process_grid_chunked(self, grid_gdf, layer_configs, chunk_size, n_workers):
-        """Process large grids by chunking"""
+        """Process large grids by chunking with memory-aware parallelism."""
         n_chunks = max(1, len(grid_gdf) // chunk_size)
-        n_chunks = min(n_chunks, n_workers * 2)
+        safe_workers = _get_safe_worker_count(n_workers)
+        n_chunks = min(n_chunks, safe_workers * 2)
         
         print(f"Splitting grid into {n_chunks} chunks...")
         grid_chunks = self._split_grid_spatially(grid_gdf, n_chunks)
@@ -423,12 +703,15 @@ class UniversalRasterScorer:
                 for chunk in grid_chunks
             ]
             
-            with Pool(processes=n_workers, initializer=init_worker_env) as pool:
-                # Use the module-level function instead of class method
+            with Pool(processes=safe_workers, initializer=init_worker_env) as pool:
                 chunk_results = pool.starmap(_process_layer_worker, args_list)
             
             layer_result = pd.concat(chunk_results, ignore_index=True)
             all_results.append(layer_result)
+            
+            # Free memory between layers
+            del chunk_results
+            gc.collect()
             
             print(f"   V Completed in {time.time()-layer_start:.2f}s")
         
