@@ -42,12 +42,7 @@ class ClusterEngine:
 
         # Convert WKT to geometry
         df['geometry'] = df['wkt'].apply(wkt.loads)
-        gdf = gpd.GeoDataFrame(df, geometry='geometry')
-        
-        # Assuming the WKT is currently in a projected CRS (metric) from previous steps, 
-        # or EPSG:4326. But since there are "_dist_km" cols, we'll keep it as is.
-        # We might need to ensure a metric CRS for area calculations if needed, but 
-        # normally inputs are consistently projected across the app.
+        gdf = gpd.GeoDataFrame(df, geometry='geometry', crs='EPSG:3857')
         
         return gdf
 

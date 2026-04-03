@@ -7,13 +7,16 @@ interface Props {
   status: ProjectStatus
   config: ProjectConfig
   onRefresh: () => void
+  onReset: () => void
 }
 
-export default function Sidebar({ status, config, onRefresh }: Props) {
+export default function Sidebar({ status, config, onRefresh, onReset }: Props) {
   async function resetProject() {
     if (!confirm('Are you sure you want to reset the current project data?')) return
-    await apiPost('/project/reset/', { keep_project_type: true })
-    onRefresh()
+    try {
+      await apiPost('/project/reset/', { keep_project_type: true })
+    } catch { /* ignore */ }
+    onReset()
   }
 
   const steps = [

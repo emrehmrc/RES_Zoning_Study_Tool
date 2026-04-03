@@ -52,6 +52,12 @@ def _load_eez_data():
     return gpd.read_file(str(Config.EEZ_PATH))
 
 
+@lru_cache(maxsize=1)
+def _load_albania_adm_data():
+    """Load and cache Albania administrative boundaries (ADM1 = Region, ADM2 = District)."""
+    return gpd.read_file(str(Config.ALBANIA_ADM_PATH))
+
+
 # Warm up geo-data caches in a background thread so the first request is instant
 def _warmup_geo_cache():
     try:
@@ -60,6 +66,10 @@ def _warmup_geo_cache():
         pass
     try:
         _load_eez_data()
+    except Exception:
+        pass
+    try:
+        _load_albania_adm_data()
     except Exception:
         pass
 
@@ -86,13 +96,54 @@ class EEZZoneListView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class AlbaniaRegionsView(APIView):
+    """Return sorted list of Albania ADM1 regions."""
+    def get(self, request):
+        try:
+            gdf = _load_albania_adm_data()
+            regions = sorted(gdf['ADM1_EN'].dropna().unique().tolist())
+            return Response({'regions': regions})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AlbaniaDistrictsView(APIView):
+    """Return sorted list of Albania ADM2 districts, optionally filtered by region."""
+    def get(self, request):
+        try:
+            gdf = _load_albania_adm_data()
+            region = request.query_params.get('region')
+            if region:
+                gdf = gdf[gdf['ADM1_EN'] == region]
+            districts = sorted(gdf['ADM2_EN'].dropna().unique().tolist())
+            return Response({'districts': districts})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class CountryBoundaryView(APIView):
-    """Return simplified GeoJSON boundary for a country or EEZ zone."""
+    """Return simplified GeoJSON boundary for a country, EEZ zone, or Albania region/district."""
     def get(self, request):
         country = request.query_params.get('country')
         zone = request.query_params.get('zone')
+        adm1 = request.query_params.get('adm1')
+        adm2 = request.query_params.get('adm2')
         try:
-            if country:
+            if adm2:
+                # Albania district boundary
+                gdf = _load_albania_adm_data()
+                gdf = gdf[gdf['ADM2_EN'] == adm2]
+                if gdf.empty:
+                    return Response({'error': f'District "{adm2}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+            elif adm1:
+                # Albania region boundary (union of all districts in that region)
+                gdf = _load_albania_adm_data()
+                gdf = gdf[gdf['ADM1_EN'] == adm1]
+                if gdf.empty:
+                    return Response({'error': f'Region "{adm1}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+                # Dissolve into a single polygon
+                gdf = gdf.dissolve().reset_index(drop=True)
+            elif country:
                 nuts = _load_nuts_data()
                 gdf = nuts[nuts['NAME_EN'] == country]
                 if gdf.empty:
@@ -103,7 +154,7 @@ class CountryBoundaryView(APIView):
                 if gdf.empty:
                     return Response({'error': 'EEZ zone not found.'}, status=status.HTTP_404_NOT_FOUND)
             else:
-                return Response({'error': 'Provide country or zone.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'Provide country, zone, adm1, or adm2.'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Simplify geometry to reduce payload (tolerance in degrees ≈ ~500m)
             simplified = gdf.copy()
@@ -136,10 +187,27 @@ class CreateGridView(APIView):
                 country_name = request.data.get('country_name')
                 if not country_name:
                     return Response({'error': 'Country name is required.'}, status=status.HTTP_400_BAD_REQUEST)
-                nuts = _load_nuts_data()
-                boundary_gdf = nuts[nuts['NAME_EN'] == country_name]
-                if boundary_gdf.empty:
-                    return Response({'error': f'Country "{country_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+                # Albania sub-national: check for adm2_district first, then adm1_region
+                adm2_district = request.data.get('adm2_district')
+                adm1_region = request.data.get('adm1_region')
+
+                if adm2_district:
+                    alb = _load_albania_adm_data()
+                    boundary_gdf = alb[alb['ADM2_EN'] == adm2_district]
+                    if boundary_gdf.empty:
+                        return Response({'error': f'District "{adm2_district}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+                elif adm1_region:
+                    alb = _load_albania_adm_data()
+                    tmp = alb[alb['ADM1_EN'] == adm1_region]
+                    if tmp.empty:
+                        return Response({'error': f'Region "{adm1_region}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+                    boundary_gdf = tmp.dissolve().reset_index(drop=True)
+                else:
+                    nuts = _load_nuts_data()
+                    boundary_gdf = nuts[nuts['NAME_EN'] == country_name]
+                    if boundary_gdf.empty:
+                        return Response({'error': f'Country "{country_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
 
             elif boundary_method == 'eez':
                 zone_name = request.data.get('zone_name')
@@ -165,7 +233,20 @@ class CreateGridView(APIView):
 
             SessionManager.save_dataframe(request.session_id, 'grid_df', grid_df)
             SessionManager.save_dataframe(request.session_id, 'boundary_gdf', gpd.GeoDataFrame(boundary_gdf))
-            SessionManager.update_session(request.session_id, grid_created=True)
+
+            # Compute true grid origin from actual cell data (min left / min bottom)
+            grid_origin_x = float(grid_df['left'].min()) if 'left' in grid_df.columns else None
+            grid_origin_y = float(grid_df['bottom'].min()) if 'bottom' in grid_df.columns else None
+
+            session_update: dict = dict(
+                grid_created=True,
+                grid_size_x=grid_size_x,
+                grid_size_y=grid_size_y,
+            )
+            if grid_origin_x is not None:
+                session_update['grid_origin_x'] = grid_origin_x
+                session_update['grid_origin_y'] = grid_origin_y
+            SessionManager.update_session(request.session_id, **session_update)
 
             preview = grid_df.head(50).to_dict(orient='records')
 
@@ -199,8 +280,39 @@ class UploadGridView(APIView):
             if missing:
                 return Response({'error': f'Missing columns: {missing}'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Build boundary_gdf + grid dimensions from WKT cells
+            from shapely import wkt as shapely_wkt
+            from shapely.ops import unary_union
+
+            geometries = grid_df['wkt'].dropna().apply(shapely_wkt.loads).tolist()
+            grid_size_x = 0.0
+            grid_size_y = 0.0
+            if geometries:
+                # Derive boundary as convex hull of all cells
+                boundary_geom = unary_union(geometries).convex_hull
+                # WKT cells are in EPSG:3857 (grid engine output)
+                boundary_gdf = gpd.GeoDataFrame(geometry=[boundary_geom], crs='EPSG:3857')
+                SessionManager.save_dataframe(request.session_id, 'boundary_gdf', boundary_gdf)
+
+                # Estimate grid cell dimensions from the first cell's bounding box
+                first_bounds = geometries[0].bounds  # (minx, miny, maxx, maxy)
+                grid_size_x = first_bounds[2] - first_bounds[0]
+                grid_size_y = first_bounds[3] - first_bounds[1]
+
+            # Compute true grid origin from actual cell data (min left / min bottom)
+            grid_origin_x = float(grid_df['left'].min()) if 'left' in grid_df.columns else None
+            grid_origin_y = float(grid_df['bottom'].min()) if 'bottom' in grid_df.columns else None
+
             SessionManager.save_dataframe(request.session_id, 'grid_df', grid_df)
-            SessionManager.update_session(request.session_id, grid_created=True)
+            session_update: dict = dict(
+                grid_created=True,
+                grid_size_x=grid_size_x,
+                grid_size_y=grid_size_y,
+            )
+            if grid_origin_x is not None:
+                session_update['grid_origin_x'] = grid_origin_x
+                session_update['grid_origin_y'] = grid_origin_y
+            SessionManager.update_session(request.session_id, **session_update)
 
             return Response({
                 'message': f'Grid loaded: {len(grid_df):,} cells',

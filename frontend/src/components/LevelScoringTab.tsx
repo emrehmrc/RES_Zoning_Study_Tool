@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { apiGet, apiPost, apiDownload, apiRunWithProgress } from '@/lib/api'
 import type { ProjectConfig, ScoringLevel } from '@/lib/types'
 import ProcessingOverlay from './ProcessingOverlay'
+import AnalysisResultsTable from './AnalysisResultsTable'
 
 interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: number }
 
@@ -109,8 +110,37 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         }
       }
 
-      setColumnModes(modes)
-      setScoringConfigs(sConfigs)
+      // Preserve user-edited weights/levels for layers that already exist in state;
+      // only apply defaults for brand-new layers (e.g. after a new analysis run).
+      setColumnModes(prev => {
+        const merged: Record<string, 'scoring' | 'exclusion' | 'skip'> = {}
+        for (const name of Object.keys(modes)) {
+          merged[name] = prev[name] ?? modes[name]
+        }
+        return merged
+      })
+      setScoringConfigs(prev => {
+        const merged: Record<string, LayerScoringConfig> = {}
+        for (const [name, cfg] of Object.entries(sConfigs)) {
+          if (prev[name]) {
+            // Layer already known — keep whatever the user set
+            merged[name] = {
+              ...cfg,
+              weight: prev[name].weight,
+              levels: prev[name].levels,
+              ...(cfg.type === 'distance_coverage' && prev[name].distance_levels
+                ? { distance_levels: prev[name].distance_levels }
+                : {}),
+              ...(cfg.max_coverage_threshold !== undefined && prev[name].max_coverage_threshold !== undefined
+                ? { max_coverage_threshold: prev[name].max_coverage_threshold }
+                : {}),
+            }
+          } else {
+            merged[name] = cfg
+          }
+        }
+        return merged
+      })
     } catch { /* not ready yet */ }
   }, [config.scoring_configs])
 
@@ -176,8 +206,30 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
     } catch (e: any) { setError(e.message) } finally { setImportLoading(false) }
   }
 
+  // Compute weight totals for scoring layers only
+  const scoringLayerWeights = Object.entries(columnModes)
+    .filter(([, m]) => m === 'scoring')
+    .map(([name]) => ({ name, weight: scoringConfigs[name]?.weight ?? 0 }))
+  const totalWeight = scoringLayerWeights.reduce((s, l) => s + l.weight, 0)
+  const weightOk = scoringLayerWeights.length === 0 || Math.abs(totalWeight - 100) < 0.01
+
+  function distributeWeightsEvenly() {
+    const n = scoringLayerWeights.length
+    if (n === 0) return
+    const even = Math.round(100 / n)
+    const remainder = 100 - even * n
+    setScoringConfigs(prev => {
+      const updated = { ...prev }
+      scoringLayerWeights.forEach(({ name }, i) => {
+        updated[name] = { ...updated[name], weight: even + (i === 0 ? remainder : 0) }
+      })
+      return updated
+    })
+  }
+
   async function runScoring() {
     setLoading(true); setError(''); setResult(null)
+    document.body.style.cursor = 'wait'
     try {
       const scoring: Record<string, any> = {}
       const constraints: Record<string, any> = {}
@@ -194,6 +246,17 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
             return
           }
         }
+      }
+
+      // Validate weight sum
+      if (scoringLayerWeights.length > 0 && !weightOk) {
+        const lines = scoringLayerWeights.map(({ name, weight }) => `  • ${name}: ${weight}%`).join('\n')
+        setError(
+          `⚠️ Layer weights must sum to 100%.\n\nCurrent weights:\n${lines}\n\nTotal: ${totalWeight}%\n\n` +
+          `Please adjust the weights or use the "Distribute Evenly" button.`
+        )
+        setLoading(false)
+        return
       }
 
       for (const [layerName, mode] of Object.entries(columnModes)) {
@@ -213,9 +276,15 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         '/scoring/run-async/',
         { scoring_config: scoring, constraint_config: constraints },
       )
+      // Fetch all rows for the data table
+      try {
+        const full = await apiGet<{ data: any[]; columns: string[] }>('/scoring/results/?page=1&page_size=100000')
+        res.preview = full.data
+        res.previewColumns = full.columns
+      } catch { /* keep original preview if full fetch fails */ }
       setResult(res)
       onComplete()
-    } catch (e: any) { setError(e.message) } finally { setLoading(false) }
+    } catch (e: any) { setError(e.message) } finally { setLoading(false); document.body.style.cursor = '' }
   }
 
   return (
@@ -362,6 +431,24 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
             ))}
           </div>
 
+          {/* Weight summary bar */}
+          {scoringLayerWeights.length > 0 && (
+            <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
+              weightOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'
+            }`}>
+              <span className={`text-sm font-medium ${ weightOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {weightOk ? '✅' : '⚠️'} Total weight: <strong>{totalWeight}%</strong>
+                {!weightOk && ` (should be 100% — ${totalWeight < 100 ? `missing ${100 - totalWeight}%` : `over by ${totalWeight - 100}%`})`}
+              </span>
+              {!weightOk && (
+                <button onClick={distributeWeightsEvenly}
+                  className="text-xs px-3 py-1.5 bg-amber-100 text-amber-800 rounded-lg border border-amber-300 hover:bg-amber-200 transition">
+                  ⚖️ Distribute Evenly
+                </button>
+              )}
+            </div>
+          )}
+
           <button onClick={runScoring} disabled={loading}
             className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50 transition">
             {loading ? '⏳ Calculating Scores...' : '🚀 Run Level Scoring'}
@@ -429,21 +516,13 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
             </div>
           )}
 
-          {/* Preview */}
+          {/* Data Table */}
           {result.preview?.length > 0 && (
-            <div className="bg-white rounded-xl p-6 shadow-sm border overflow-x-auto max-h-64">
-              <table className="min-w-full text-xs">
-                <thead className="bg-slate-100 sticky top-0">
-                  <tr>{Object.keys(result.preview[0]).map(c => <th key={c} className="px-2 py-1.5 text-left font-medium text-slate-600 whitespace-nowrap">{c}</th>)}</tr>
-                </thead>
-                <tbody className="divide-y">
-                  {result.preview.map((row: any, i: number) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      {Object.values(row).map((v: any, j) => <td key={j} className="px-2 py-1 whitespace-nowrap">{typeof v === 'number' ? Math.round(v * 100) / 100 : v}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="bg-white rounded-xl p-6 shadow-sm border">
+              <AnalysisResultsTable
+                columns={result.previewColumns || Object.keys(result.preview[0])}
+                data={result.preview}
+              />
             </div>
           )}
         </div>

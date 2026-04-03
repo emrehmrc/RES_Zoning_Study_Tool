@@ -1,13 +1,29 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { apiGet, apiPost, apiPut, apiDownload, apiRunWithProgress } from '@/lib/api'
-import type { ProjectConfig, ClusterScoringRule } from '@/lib/types'
+import type { ProjectConfig, ProjectStatus, ClusterScoringRule } from '@/lib/types'
 import ProcessingOverlay from './ProcessingOverlay'
+import AnalysisResultsTable from './AnalysisResultsTable'
 
-interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: number }
+const ClusterMapPreview = dynamic(() => import('./ClusterMapPreview'), { ssr: false })
 
-export default function ClusterTab({ config, onComplete, activeTab }: Props) {
+/** Human-friendly labels for financial constant keys */
+const FINANCIAL_LABELS: Record<string, { label: string; unit?: string; modes?: string[] }> = {
+  pv_capex_per_mw:          { label: 'PV CAPEX Per MW', unit: '$' },
+  wind_capex_per_mw:        { label: 'Wind CAPEX Per MW', unit: '$' },
+  substation_pv_ratio:      { label: 'Substation Installation Cost Ratio of CAPEX', modes: ['Solar'] },
+  substation_wind_ratio:    { label: 'Substation Installation Cost Ratio of CAPEX', modes: ['OnShore', 'OffShore'] },
+  line_expropriation_ratio: { label: 'Line Expropriation Cost Ratio of CAPEX' },
+  land_cost_ratio:          { label: 'Land Expropriation Cost Ratio of CAPEX' },
+  transport_network_base:   { label: 'Transport Network Base Cost', unit: '$' },
+  transport_network_per_mw: { label: 'Transport Network Cost Per MW', unit: '$' },
+}
+
+interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: number; status?: ProjectStatus | null }
+
+export default function ClusterTab({ config, onComplete, activeTab, status }: Props) {
   const [nominalCapacity, setNominalCapacity] = useState(13)
   const [maxCapacity, setMaxCapacity] = useState(250)
   const [adjustCoverage, setAdjustCoverage] = useState(true)
@@ -21,6 +37,14 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
   const [activeRefTab, setActiveRefTab] = useState<'rules' | 'financial' | 'cp'>('rules')
+  const [focusWkt, setFocusWkt] = useState<string | null>(null)
+  const [clusterRows, setClusterRows] = useState<any[]>([])
+
+  // Wait cursor while loading
+  useEffect(() => {
+    document.body.style.cursor = loading ? 'wait' : ''
+    return () => { document.body.style.cursor = '' }
+  }, [loading])
 
   const loadRefData = useCallback(async () => {
     try {
@@ -79,7 +103,7 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
   }
 
   async function runCluster() {
-    setLoading(true); setError(''); setResult(null)
+    setLoading(true); setError(''); setResult(null); setClusterRows([]); setFocusWkt(null)
     try {
       const res = await apiRunWithProgress(
         '/cluster/run-async/',
@@ -94,6 +118,15 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
         },
       )
       setResult(res)
+      // Fetch full cluster data for DataTable + map
+      try {
+        const full = await apiGet<{ data: any[]; columns: string[] }>('/cluster/results/?page=1&page_size=100000')
+        setClusterRows(full.data)
+        if (full.columns) res.columns = full.columns
+      } catch {
+        // Use preview from result as fallback
+        if (res.preview?.length) setClusterRows(res.preview)
+      }
       onComplete()
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
   }
@@ -102,6 +135,13 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-slate-800">🔗 Step 4: Cluster Analysis</h2>
       <hr />
+
+      {(!status || !status.has_final_scored) ? (
+        <div className="bg-amber-50 text-amber-700 p-6 rounded-xl border border-amber-200 text-center">
+          <p className="font-medium">No scoring data available.</p>
+          <p className="text-sm mt-1">Complete Step 3 (Scoring) first, or upload a CSV with scored data.</p>
+        </div>
+      ) : (<>
 
       {/* Data Source & Capacity Params */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -228,14 +268,27 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
           {activeRefTab === 'financial' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {Object.entries(financialConstants).filter(([k]) => typeof financialConstants[k] !== 'object').map(([key, val]) => (
-                  <label key={key} className="block text-xs text-slate-600">
-                    {key.replace(/_/g, ' ')}
-                    <input type="number" value={val as number}
-                      onChange={e => setFinancialConstants(prev => ({ ...prev, [key]: +e.target.value }))}
-                      className="mt-1 w-full border rounded p-2 text-sm" />
-                  </label>
-                ))}
+                {Object.entries(financialConstants)
+                  .filter(([k]) => typeof financialConstants[k] !== 'object')
+                  .filter(([k]) => {
+                    const meta = FINANCIAL_LABELS[k]
+                    if (!meta?.modes) return true
+                    return meta.modes.includes(config.project_type)
+                  })
+                  .map(([key, val]) => {
+                    const meta = FINANCIAL_LABELS[key]
+                    const displayLabel = meta
+                      ? `${meta.unit ? `(${meta.unit}) ` : ''}${meta.label}`
+                      : key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <label key={key} className="block text-xs text-slate-600">
+                        {displayLabel}
+                        <input type="number" value={val as number}
+                          onChange={e => setFinancialConstants(prev => ({ ...prev, [key]: +e.target.value }))}
+                          className="mt-1 w-full border rounded p-2 text-sm" />
+                      </label>
+                    )
+                  })}
               </div>
               <button onClick={saveFinancial}
                 className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
@@ -332,8 +385,6 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
           <div className="bg-white rounded-xl p-6 shadow-sm border">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-emerald-700">✅ {result.message}</h3>
-              <button onClick={() => apiDownload('/cluster/download/', 'clustered_scored_results.csv')}
-                className="text-sm px-4 py-1.5 bg-slate-100 rounded-lg hover:bg-slate-200">📥 Download</button>
             </div>
 
             {result.summary && (
@@ -355,29 +406,28 @@ export default function ClusterTab({ config, onComplete, activeTab }: Props) {
 
           </div>
 
-          {/* Preview Table */}
-          {result.preview?.length > 0 && (
-            <div className="bg-white rounded-xl p-6 shadow-sm border overflow-x-auto max-h-72">
-              <table className="min-w-full text-xs">
-                <thead className="bg-slate-100 sticky top-0">
-                  <tr>{result.columns?.map((c: string) => <th key={c} className="px-2 py-1.5 text-left font-medium text-slate-600 whitespace-nowrap">{c}</th>)}</tr>
-                </thead>
-                <tbody className="divide-y">
-                  {result.preview.map((row: any, i: number) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      {result.columns?.map((c: string) => (
-                        <td key={c} className="px-2 py-1 whitespace-nowrap text-slate-700">
-                          {row[c] == null ? '—' : typeof row[c] === 'number' ? Math.round(row[c] * 100) / 100 : String(row[c])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Cluster Map */}
+          {clusterRows.length > 0 && (
+            <ClusterMapPreview clusters={clusterRows} focusWkt={focusWkt} activeTab={activeTab} />
+          )}
+
+          {/* Data Table */}
+          {clusterRows.length > 0 && result.columns && (
+            <div className="bg-white rounded-xl p-6 shadow-sm border">
+              <div className="flex justify-end mb-3">
+                <button onClick={() => apiDownload('/cluster/download/', 'clustered_scored_results.csv')}
+                  className="text-sm px-4 py-1.5 bg-slate-100 rounded-lg hover:bg-slate-200 border">📥 Download CSV</button>
+              </div>
+              <AnalysisResultsTable
+                columns={result.columns}
+                data={clusterRows}
+                onRowClick={(row) => { if (row.wkt) setFocusWkt(row.wkt) }}
+              />
             </div>
           )}
         </div>
       )}
+      </>)}
     </div>
   )
 }

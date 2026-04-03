@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir "GDAL==$(gdal-config --version)" \
     && pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Copy entire project (engines, utils, config needed by backend)
+# NOTE: data/ directory (incl. NUTS geojson) is provided at runtime via docker-compose volume mount
 COPY config.py /app/config.py
-COPY NUTS_RG_01M_2021_4326.geojson /app/NUTS_RG_01M_2021_4326.geojson
 COPY engines/ /app/engines/
 COPY utils/ /app/utils/
 COPY config/ /app/config/

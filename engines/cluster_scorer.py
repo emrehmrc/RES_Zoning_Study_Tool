@@ -203,7 +203,9 @@ class ClusterScorer:
             df[col_name] = series
 
         # ── 6. Overall Score ──────────────────────────────────────
-        df["Overall_Score"] = df["Mean_Cell_OverallScore"] + df["Nearest_Weight_%"]
+        # weight_frac (as %) × connection_score → contribution of nearest connection
+        connection_contribution = (df["Nearest_Weight_%"] / 100.0) * df["Nearest_Connection_Score"]
+        df["Overall_Score"] = df["Mean_Cell_OverallScore"] + connection_contribution
 
         # ── 7. Financial & Energy Metrics ─────────────────────────
         # Use defaults if config wasn't passed down

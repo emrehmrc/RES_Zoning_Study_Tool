@@ -3,6 +3,7 @@ Universal Raster Distance & Coverage Calculator - ENHANCED
 Now supports: Distance, Coverage, Mean, Max, Min, and Categorical modes
 """
 import gc
+import math
 import os
 import sys
 import ctypes
@@ -11,7 +12,7 @@ import rasterio
 from rasterio.windows import from_bounds
 from rasterstats import zonal_stats
 import pandas as pd
-from osgeo import gdal
+from osgeo import gdal, osr
 from multiprocessing import Pool, cpu_count
 import time
 import psutil
@@ -214,9 +215,23 @@ class UniversalRasterScorer:
         is_square = pixel_diff < (avg_pixel_size * 0.01)
         
         if not is_square:
-            print(f"   - Non-square pixels: {pixel_width:.2f}m x {pixel_height:.2f}m (avg: {avg_pixel_size:.2f}m)")
+            print(f"   - Non-square pixels: {pixel_width:.6f} x {pixel_height:.6f} (avg: {avg_pixel_size:.6f})")
         else:
-            print(f"   - Square pixels: {avg_pixel_size:.2f}m x {avg_pixel_size:.2f}m")
+            print(f"   - Square pixels: {avg_pixel_size:.6f} x {avg_pixel_size:.6f}")
+        
+        # Detect geographic CRS (degrees) and compute meter-equivalent pixel size
+        _srs = osr.SpatialReference()
+        _srs.ImportFromWkt(src_ds.GetProjection())
+        is_geographic = _srs.IsGeographic()
+        
+        if is_geographic:
+            center_y = src_gt[3] + src_gt[5] * max_height / 2
+            px_m_x = pixel_width * 111_320 * math.cos(math.radians(center_y))
+            px_m_y = pixel_height * 111_320
+            pixel_size_m = (px_m_x + px_m_y) / 2
+            print(f"   - Geographic CRS: ~{pixel_size_m:.1f} m/pixel (at lat {center_y:.2f}°)")
+        else:
+            pixel_size_m = avg_pixel_size
         
         if window:
             target_w = int(window.width)
@@ -228,75 +243,77 @@ class UniversalRasterScorer:
             target_h = max_height
             win_xoff = 0
             win_yoff = 0
-        
+
+        # Cap MEM dataset resolution to avoid OOM on very large rasters.
+        # For distance mode, coarser resolution is still accurate enough (km-scale results).
+        MAX_PROXIMITY_DIM = 6000
+        scale = min(1.0, MAX_PROXIMITY_DIM / max(target_w, target_h, 1))
+        scaled_w = max(1, int(target_w * scale))
+        scaled_h = max(1, int(target_h * scale))
+        # Effective pixel size grows proportionally when downsampled.
+        effective_pixel_size_m = pixel_size_m / scale
+        if scale < 1.0:
+            print(f"   - Downsampling {target_w}x{target_h} → {scaled_w}x{scaled_h} "
+                  f"(scale={scale:.4f}) to fit proximity in memory")
+
         drv = gdal.GetDriverByName('MEM')
-        global_src_ds = drv.Create('', target_w, target_h, 1, gdal.GDT_Byte)
+        global_src_ds = drv.Create('', scaled_w, scaled_h, 1, gdal.GDT_Byte)
         global_band = global_src_ds.GetRasterBand(1)
-        
-        zero_array = np.zeros((target_h, target_w), dtype=np.uint8)
+
+        zero_array = np.zeros((scaled_h, scaled_w), dtype=np.uint8)
         global_band.WriteArray(zero_array)
-        
+
         win_gt = list(src_gt)
         win_gt[0] += win_xoff * src_gt[1]
         win_gt[3] += win_yoff * src_gt[5]
+        if scale < 1.0:
+            win_gt[1] = src_gt[1] / scale   # wider pixels
+            win_gt[5] = src_gt[5] / scale   # taller pixels (negative)
         global_src_ds.SetGeoTransform(win_gt)
         global_src_ds.SetProjection(src_ds.GetProjection())
-        
+
         ixoff = max(0, win_xoff)
         iyoff = max(0, win_yoff)
         ixsize = min(win_xoff + target_w, max_width) - ixoff
         iysize = min(win_yoff + target_h, max_height) - iyoff
-        
+
         if ixsize > 0 and iysize > 0:
-            raster_data = src_band.ReadAsArray(ixoff, iyoff, ixsize, iysize)
-            
+            buf_xsize = max(1, int(ixsize * scale))
+            buf_ysize = max(1, int(iysize * scale))
+            raster_data = src_band.ReadAsArray(ixoff, iyoff, ixsize, iysize, buf_xsize, buf_ysize)
+
             if src_nodata is not None:
                 raster_data = np.where(raster_data == src_nodata, 0, raster_data)
-            
-            dest_xoff = ixoff - win_xoff
-            dest_yoff = iyoff - win_yoff
+
+            dest_xoff = max(0, int((ixoff - win_xoff) * scale))
+            dest_yoff = max(0, int((iyoff - win_yoff) * scale))
             global_band.WriteArray(raster_data, dest_xoff, dest_yoff)
-        
-        prox_ds = drv.Create('', target_w, target_h, 1, gdal.GDT_Float32)
+
+        prox_ds = drv.Create('', scaled_w, scaled_h, 1, gdal.GDT_Float32)
         prox_band = prox_ds.GetRasterBand(1)
         prox_ds.SetGeoTransform(win_gt)
         prox_ds.SetProjection(src_ds.GetProjection())
         prox_band.SetNoDataValue(-9999)
-        
+
         max_distance_meters = max_distance_km * 1000
-        max_distance_pixels = int(max_distance_meters / avg_pixel_size)
+        max_distance_pixels = int(max_distance_meters / effective_pixel_size_m)
         
         print(f"   > Max search distance: {max_distance_km} km = {max_distance_pixels} pixels")
-        
-        if is_square:
-            gdal.PushErrorHandler('CPLQuietErrorHandler')
-            gdal.ComputeProximity(
-                global_band, 
-                prox_band, 
-                [f'VALUES={target_value}',
-                f'MAXDIST={max_distance_pixels}',
-                'DISTUNITS=PIXEL',
-                f'NODATA=-9999']
-            )
-            gdal.PopErrorHandler()
-            
-            proximity_pixels = prox_band.ReadAsArray()
-            proximity_meters = proximity_pixels * avg_pixel_size
-            proximity_meters = np.where(proximity_pixels == -9999, -9999, proximity_meters)
-            
-        else:
-            gdal.PushErrorHandler('CPLQuietErrorHandler')
-            gdal.ComputeProximity(
-                global_band, 
-                prox_band, 
-                [f'VALUES={target_value}',
-                f'MAXDIST={max_distance_pixels}',
-                'DISTUNITS=GEO',
-                f'NODATA=-9999']
-            )
-            gdal.PopErrorHandler()
-            
-            proximity_meters = prox_band.ReadAsArray()
+
+        gdal.PushErrorHandler('CPLQuietErrorHandler')
+        gdal.ComputeProximity(
+            global_band,
+            prox_band,
+            [f'VALUES={target_value}',
+             f'MAXDIST={max_distance_pixels}',
+             'DISTUNITS=PIXEL',
+             f'NODATA=-9999']
+        )
+        gdal.PopErrorHandler()
+
+        proximity_pixels = prox_band.ReadAsArray()
+        proximity_meters = proximity_pixels * effective_pixel_size_m
+        proximity_meters = np.where(proximity_pixels == -9999, -9999, proximity_meters)
         
         proximity_meters = np.where(proximity_meters == -9999, 999999, proximity_meters)
         
@@ -388,13 +405,16 @@ class UniversalRasterScorer:
         """Retry layer calculation by recursively sub-chunking when allocation errors occur."""
         try:
             return self._calculate_layer_inner(grid_gdf, raster_path, layer_prefix, analysis_modes, target_value)
-        except (MemoryError, ValueError) as e:
+        except (MemoryError, ValueError, RuntimeError, OSError) as e:
             msg = str(e).lower()
             is_alloc_error = (
                 'unable to allocate' in msg
                 or 'array is too big' in msg
                 or 'out of memory' in msg
                 or 'cannot allocate memory' in msg
+                or 'read failed' in msg
+                or 'not enough' in msg
+                or 'allocation' in msg
             )
             if not is_alloc_error:
                 raise
@@ -433,12 +453,31 @@ class UniversalRasterScorer:
         with rasterio.open(raster_path) as src:
             raster_crs = src.crs
             grid_transformed = self._transform_grid_to_raster_crs(grid_gdf, raster_crs)
-            
+
             xmin, ymin, xmax, ymax = grid_transformed.total_bounds
             window = from_bounds(xmin, ymin, xmax, ymax, src.transform)
-            
-            raster_data = src.read(1, window=window, boundless=True, fill_value=safe_nodata).astype(np.float32)
+
+            # Cap read resolution to avoid OOM when the window spans millions of pixels.
+            MAX_DATA_DIM = 6000
+            win_w = max(1, int(window.width))
+            win_h = max(1, int(window.height))
+            scale_r = min(1.0, MAX_DATA_DIM / max(win_w, win_h, 1))
+            out_w = max(1, int(win_w * scale_r))
+            out_h = max(1, int(win_h * scale_r))
+
+            from rasterio.enums import Resampling
+            raster_data = src.read(
+                1, window=window, boundless=True, fill_value=safe_nodata,
+                out_shape=(out_h, out_w),
+                resampling=Resampling.nearest,
+            ).astype(np.float32)
             win_transform = src.window_transform(window)
+            if scale_r < 1.0:
+                from rasterio.transform import Affine
+                win_transform = Affine(
+                    win_transform.a / scale_r, win_transform.b, win_transform.c,
+                    win_transform.d, win_transform.e / scale_r, win_transform.f,
+                )
         
         results = []
         

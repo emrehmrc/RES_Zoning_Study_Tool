@@ -76,17 +76,22 @@ export async function apiDelete<T = any>(path: string): Promise<T> {
 }
 
 export async function apiDownload(path: string, filename: string) {
-  const res = await request(path)
-  if (!res.ok) throw new Error('Download failed')
-  const blob = await res.blob()
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
+  document.body.style.cursor = 'wait'
+  try {
+    const res = await request(path)
+    if (!res.ok) throw new Error('Download failed')
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  } finally {
+    document.body.style.cursor = 'default'
+  }
 }
 
 /* -------- Task polling -------- */

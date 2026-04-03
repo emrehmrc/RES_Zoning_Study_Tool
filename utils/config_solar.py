@@ -7,7 +7,7 @@ class SolarConfig:
     PROJECT_TYPE = "Solar"
     APP_TITLE = "Solar PV Zoning Dashboard"
     THEME_COLOR = "orange"  # Streamlit primary color or theme hint
-    ICON = "☀️"
+    ICON = "/Solar.png"
     
     # -------------------------------------------------------------------------
     # LAYER CONFIGURATION (Step 2)

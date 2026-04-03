@@ -5,3 +5,16 @@
 body {
   @apply bg-slate-50 text-slate-800 antialiased;
 }
+
+/* Fix ESRI satellite tile seam lines */
+.leaflet-tile-pane .leaflet-tile {
+  outline: none !important;
+  border: none !important;
+  margin: -1px !important;
+  padding: 1px !important;
+  width: 258px !important;
+  height: 258px !important;
+  filter: none;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}

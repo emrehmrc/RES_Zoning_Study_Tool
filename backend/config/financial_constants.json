@@ -1,0 +1,11 @@
+{
+    "pv_capex_per_mw": 500000,
+    "wind_capex_per_mw": 1000000,
+    "substation_pv_ratio": 0.08,
+    "substation_wind_ratio": 0.06,
+    "line_expropriation_ratio": 0.1,
+    "land_cost_ratio": 0.1,
+    "transport_network_base": 400000,
+    "transport_network_per_mw": 500,
+    "transmission": []
+}

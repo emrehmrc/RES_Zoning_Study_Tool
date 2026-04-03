@@ -5,11 +5,13 @@ from api.views.project_views import (
 from api.views.grid_views import (
     CreateGridView, UploadGridView, GridDataView, GridDownloadView,
     CountryListView, EEZZoneListView, CountryBoundaryView,
+    AlbaniaRegionsView, AlbaniaDistrictsView,
 )
 from api.views.layer_views import (
     LayerListView, AddLayerView, RemoveLayerView,
     RasterFilesView, UploadRasterFileView, RunAnalysisView, AnalysisResultsView, AnalysisDownloadView,
-    BrowseDirectoryView, RunAnalysisAsyncView, TaskProgressView,
+    BrowseDirectoryView, NativeFileDialogView, RunAnalysisAsyncView, TaskProgressView,
+    GridInfoView, RasterPreviewView,
 )
 from api.views.scoring_views import (
     RunScoringView, ScoringResultsView, ScoringDownloadView, ImportScoringCSVView,
@@ -36,6 +38,8 @@ urlpatterns = [
     path('countries/', CountryListView.as_view()),
     path('eez-zones/', EEZZoneListView.as_view()),
     path('country-boundary/', CountryBoundaryView.as_view()),
+    path('albania/regions/', AlbaniaRegionsView.as_view()),
+    path('albania/districts/', AlbaniaDistrictsView.as_view()),
 
     # Layers & Analysis
     path('layers/', LayerListView.as_view()),
@@ -48,7 +52,10 @@ urlpatterns = [
     path('analysis/results/', AnalysisResultsView.as_view()),
     path('analysis/download/', AnalysisDownloadView.as_view()),
     path('browse/', BrowseDirectoryView.as_view()),
+    path('native-file-dialog/', NativeFileDialogView.as_view()),
     path('task/<str:task_id>/progress/', TaskProgressView.as_view()),
+    path('grid-info/', GridInfoView.as_view()),
+    path('raster-preview/', RasterPreviewView.as_view()),
 
     # Level Scoring
     path('scoring/run/', RunScoringView.as_view()),

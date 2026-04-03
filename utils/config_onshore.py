@@ -7,7 +7,7 @@ class OnShoreConfig:
     PROJECT_TYPE = "OnShore"
     APP_TITLE = "On-Shore Wind Zoning Dashboard"
     THEME_COLOR = "dark_blue"
-    ICON = "🌬️"
+    ICON = "/Onshore.jpeg"
     
     # -------------------------------------------------------------------------
     # LAYER CONFIGURATION (Step 2)
@@ -26,16 +26,16 @@ class OnShoreConfig:
             "Distance to 400kV Substations"
         ],
         "Restrictions & Exclusion": [
-            "Distance to Agriculture",
-            "Distance to Airports",
-            "Distance to Energy Sources",
-            "Distance to Forest",
-            "Distance to Hydrography",
-            "Distance to Land Use",
-            "Distance to Military Areas",
-            "Distance to Mineral Resources",
-            "Distance to Natural Risk Zones",
-            "Distance to Protected Areas",
+            "Agriculture",
+            "Airports",
+            "Energy Sources",
+            "Forest",
+            "Hydrography",
+            "Land Use",
+            "Military Areas",
+            "Mineral Resources",
+            "Natural Risk Zones",
+            "Protected Areas",
             
         ],
         "Terrain & Altitude": [
@@ -43,7 +43,7 @@ class OnShoreConfig:
             "Altitude"
         ],
         "Access": [
-            "Distance to Transport Networks"
+            "Transport Networks"
         ]
     }
 
@@ -63,13 +63,13 @@ class OnShoreConfig:
         "Energy Sources": ['distance'],
         "Agriculture": ['distance', 'coverage'],
         "Forest": ['distance', 'coverage'],
-        "Airport": ['distance'],
+        "Airports": ['distance'],
         "Hydrography": ['distance'],
         "Land Use": ['distance', 'coverage'],
         "Military Areas": ['distance'],
         "Mineral Resources": ['distance'],
         "Natural Risk Zones": ['distance'],
-        "Protected Areas (Habitats)": ['distance'],
+        "Protected Areas": ['distance'],
         
         "Slope (%)": ['max', 'mean', 'min'],
         "Transport Networks": ['distance'],

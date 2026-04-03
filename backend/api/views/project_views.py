@@ -26,7 +26,7 @@ def serialize_config(config_cls):
         'icon': config_cls.ICON,
         'layer_categories': config_cls.LAYER_CATEGORIES,
         'predefined_layer_modes': config_cls.PREDEFINED_LAYER_MODES,
-        'all_layer_names': config_cls.ALL_LAYER_NAMES,
+        'all_layer_names': sorted(config_cls.ALL_LAYER_NAMES),
         'scoring_configs': config_cls.SCORING_CONFIGS,
         'cluster_scoring_rules': config_cls.CLUSTER_SCORING_RULES,
     }

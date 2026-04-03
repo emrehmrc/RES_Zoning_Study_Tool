@@ -7,6 +7,7 @@ import shapely
 import pandas as pd
 import time
 from pathlib import Path
+from pyproj import Transformer
 
 
 class FastGridEngine:
@@ -19,7 +20,7 @@ class FastGridEngine:
         boundary_gdf : GeoDataFrame
             Boundary geometry for grid clipping
         """
-        # Ensure the boundary is in meters for accurate grid sizing
+        # Work in EPSG:3857 (Web Mercator, metres)
         self.boundary_gdf = boundary_gdf.to_crs("EPSG:3857")
     
     def create_rectangular_grid(self, dx, dy, progress_callback=None, chunk_rows=500):
@@ -49,16 +50,17 @@ class FastGridEngine:
             if progress_callback:
                 progress_callback(pct, text)
         
-        # 1. Bounding Box & Axis Vectors
+        # 1. Bounding Box & Axis Vectors (EPSG:3857 — already in metres)
         update(0.05, "Calculating coordinate space...")
         xmin, ymin, xmax, ymax = self.boundary_gdf.total_bounds
+
         cols = np.arange(xmin, xmax, dx)
         rows = np.arange(ymin, ymax, dy)
         
         total_rows = len(rows)
         total_cols = len(cols)
         estimated_cells = total_rows * total_cols
-        update(0.08, f"Grid space: {total_cols} cols × {total_rows} rows = {estimated_cells:,} candidate cells")
+        update(0.08, f"Grid space: {total_cols} cols × {total_rows} rows = {estimated_cells:,} candidate cells ({dx}m × {dy}m)")
         
         # Prepare boundary mask once
         mask_geom = self.boundary_gdf.geometry.unary_union
@@ -93,15 +95,41 @@ class FastGridEngine:
                 'geometry': polygons
             }, crs="EPSG:3857")
             
-            # Spatial filtering – keep cells whose centroid is within boundary
-            is_inside = chunk_gdf.geometry.centroid.within(mask_geom)
-            valid = chunk_gdf[is_inside]
+            # --- Intersection clipping (like QGIS Intersection) ---
+            # 1) Keep only cells that intersect the boundary
+            is_intersecting = chunk_gdf.geometry.intersects(mask_geom)
+            candidates = chunk_gdf[is_intersecting].copy()
+            
+            if len(candidates) > 0:
+                # 2) Cells fully within boundary → keep as-is (fast path)
+                is_within = candidates.geometry.within(mask_geom)
+                full_cells = candidates[is_within].copy()
+                
+                # 3) Cells partially overlapping → clip to boundary
+                edge_cells = candidates[~is_within].copy()
+                
+                if len(edge_cells) > 0:
+                    clipped_geoms = edge_cells.geometry.intersection(mask_geom)
+                    # Drop empty results and keep only Polygon/MultiPolygon
+                    valid_mask = (~clipped_geoms.is_empty) & clipped_geoms.geom_type.isin(['Polygon', 'MultiPolygon'])
+                    edge_cells = edge_cells[valid_mask].copy()
+                    edge_cells['geometry'] = clipped_geoms[valid_mask]
+                    # Update bounding columns from clipped geometry
+                    clipped_bounds = edge_cells.geometry.bounds  # minx, miny, maxx, maxy
+                    edge_cells['left'] = clipped_bounds['minx'].values
+                    edge_cells['bottom'] = clipped_bounds['miny'].values
+                    edge_cells['right'] = clipped_bounds['maxx'].values
+                    edge_cells['top'] = clipped_bounds['maxy'].values
+                
+                valid = pd.concat([full_cells, edge_cells], ignore_index=True) if len(edge_cells) > 0 else full_cells
+            else:
+                valid = candidates
             
             if len(valid) > 0:
                 chunk_results.append(valid)
             
             # Free memory for the batch
-            del x_mesh, y_mesh, x_flat, y_flat, polygons, chunk_gdf, is_inside
+            del x_mesh, y_mesh, x_flat, y_flat, polygons, chunk_gdf
         
         # 3. Concatenate All Chunks
         update(0.72, "Merging filtered chunks...")
@@ -113,19 +141,18 @@ class FastGridEngine:
         grid_gdf['cell_id'] = grid_gdf.index
         
         # 4. Center Points and WKT
-        update(0.78, "Calculating center points and WGS84 coordinates...")
-        grid_gdf['Center_X'] = grid_gdf['left'] + (dx / 2)
-        grid_gdf['Center_Y'] = grid_gdf['bottom'] + (dy / 2)
+        update(0.78, "Calculating center points...")
+        # Use actual geometry centroid (correct for both full and clipped cells)
+        centroids = grid_gdf.geometry.centroid
+        grid_gdf['Center_X'] = centroids.x
+        grid_gdf['Center_Y'] = centroids.y
         grid_gdf['wkt'] = grid_gdf.geometry.to_wkt()
         
-        # 5. WGS84 Conversion (Vectorized)
-        temp_points = gpd.GeoSeries(
-            gpd.points_from_xy(grid_gdf['Center_X'], grid_gdf['Center_Y']), 
-            crs="EPSG:3857"
-        ).to_crs("EPSG:4326")
-        
-        grid_gdf['Center_X_4326'] = temp_points.x 
-        grid_gdf['Center_Y_4326'] = temp_points.y 
+        # Convert EPSG:3857 centres → EPSG:4326 for Leaflet display
+        _t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        lons, lats = _t.transform(grid_gdf['Center_X'].values, grid_gdf['Center_Y'].values)
+        grid_gdf['Center_X_4326'] = lons
+        grid_gdf['Center_Y_4326'] = lats
         
         # 6. Finalization
         update(0.92, "Finalizing the table structure...")

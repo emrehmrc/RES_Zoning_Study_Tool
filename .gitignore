@@ -6,6 +6,12 @@ __pycache__/
 .venv
 env/
 venv/
+Archive/
+*.whl
+
+### Node ###
+node_modules/
+frontend/.next/
 
 ### Projeye Özel Klasörler (Görselden Hareketle) ###
 # Önbellek klasörlerini her yerde engelle

@@ -1,4 +1,17 @@
 {
+  "components\\ClusterMapPreview.tsx -> leaflet": {
+    "id": "components\\ClusterMapPreview.tsx -> leaflet",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_leaflet_dist_leaflet-src_js.js"
+    ]
+  },
+  "components\\ClusterTab.tsx -> ./ClusterMapPreview": {
+    "id": "components\\ClusterTab.tsx -> ./ClusterMapPreview",
+    "files": [
+      "static/css/_app-pages-browser_src_components_ClusterMapPreview_tsx.css",
+      "static/chunks/_app-pages-browser_src_components_ClusterMapPreview_tsx.js"
+    ]
+  },
   "components\\CountryMapPreview.tsx -> leaflet": {
     "id": "components\\CountryMapPreview.tsx -> leaflet",
     "files": [
@@ -10,6 +23,19 @@
     "files": [
       "static/css/_app-pages-browser_src_components_CountryMapPreview_tsx.css",
       "static/chunks/_app-pages-browser_src_components_CountryMapPreview_tsx.js"
+    ]
+  },
+  "components\\LayerMapPreview.tsx -> leaflet": {
+    "id": "components\\LayerMapPreview.tsx -> leaflet",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_leaflet_dist_leaflet-src_js.js"
+    ]
+  },
+  "components\\ScoringTab.tsx -> ./LayerMapPreview": {
+    "id": "components\\ScoringTab.tsx -> ./LayerMapPreview",
+    "files": [
+      "static/css/_app-pages-browser_src_components_LayerMapPreview_tsx.css",
+      "static/chunks/_app-pages-browser_src_components_LayerMapPreview_tsx.js"
     ]
   }
 }

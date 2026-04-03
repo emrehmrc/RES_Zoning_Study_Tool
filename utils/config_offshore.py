@@ -7,7 +7,7 @@ class OffShoreConfig:
     PROJECT_TYPE = "OffShore"
     APP_TITLE = "Off-Shore Wind Zoning Dashboard"
     THEME_COLOR = "blue"
-    ICON = "🌊"
+    ICON = "/Offshore.png"
     
     # -------------------------------------------------------------------------
     # LAYER CONFIGURATION (Step 2)

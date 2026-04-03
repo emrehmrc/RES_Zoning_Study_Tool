@@ -164,7 +164,7 @@ class ClusterResultsView(APIView):
         start = (page - 1) * page_size
 
         data = result[cols].iloc[start:start + page_size].to_dict(orient='records')
-        _sanitize_for_json(data)
+        data = _sanitize_for_json(data)
 
         return Response({
             'total': len(result),

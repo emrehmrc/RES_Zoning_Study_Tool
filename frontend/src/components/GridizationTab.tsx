@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { apiGet, apiPost, apiDownload } from '@/lib/api'
 import type { ProjectConfig } from '@/lib/types'
 import ProcessingOverlay from './ProcessingOverlay'
+import AnalysisResultsTable from './AnalysisResultsTable'
 
 const CountryMapPreview = dynamic(() => import('./CountryMapPreview'), { ssr: false })
 
@@ -17,12 +18,28 @@ export default function GridizationTab({ config, onComplete }: Props) {
   const [eezZones, setEezZones] = useState<string[]>([])
   const [selectedCountry, setSelectedCountry] = useState('')
   const [selectedZone, setSelectedZone] = useState('')
+  const [albRegions, setAlbRegions] = useState<string[]>([])
+  const [albDistricts, setAlbDistricts] = useState<string[]>([])
+  const [selectedAlbRegion, setSelectedAlbRegion] = useState('')
+  const [selectedAlbDistrict, setSelectedAlbDistrict] = useState('')
   const [gridSizeX, setGridSizeX] = useState(1000)
   const [gridSizeY, setGridSizeY] = useState(1000)
   const [turbineDiameter, setTurbineDiameter] = useState(200)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
+  const [mapKey, setMapKey] = useState(0)
+  const [committedGridX, setCommittedGridX] = useState(0)
+  const [committedGridY, setCommittedGridY] = useState(0)
+  const [focusCell, setFocusCell] = useState<string | null>(null)
+  const [gridData, setGridData] = useState<{ columns: string[]; data: any[] } | null>(null)
+  const [wktCells, setWktCells] = useState<string[]>([])
+  const [tooDenseForMap, setTooDenseForMap] = useState(false)
+  // Tracks which method last produced the grid so the map knows what to render
+  const [gridSource, setGridSource] = useState<'none' | 'generate' | 'upload'>('none')
+  // Exact grid origin in EPSG:3857 from first real cell — aligns visual grid with actual cells
+  const [gridOriginX, setGridOriginX] = useState(0)
+  const [gridOriginY, setGridOriginY] = useState(0)
 
   const isWind = config.project_type === 'OnShore' || config.project_type === 'OffShore'
 
@@ -43,6 +60,12 @@ export default function GridizationTab({ config, onComplete }: Props) {
   const gridYError = gridSizeY < GRID_MIN || gridSizeY > GRID_MAX
   const turbError  = turbineDiameter < TURB_MIN || turbineDiameter > TURB_MAX
 
+  // Wait cursor while grid is being created/uploaded
+  useEffect(() => {
+    document.body.style.cursor = loading ? 'wait' : 'default'
+    return () => { document.body.style.cursor = 'default' }
+  }, [loading])
+
   useEffect(() => {
     if (config.project_type === 'OffShore') {
       setBoundaryMethod('eez')
@@ -51,6 +74,30 @@ export default function GridizationTab({ config, onComplete }: Props) {
       apiGet<{ countries: string[] }>('/countries/').then(r => setCountries(r.countries)).catch(() => {})
     }
   }, [config.project_type])
+
+  // Load Albania regions when Albania is selected
+  useEffect(() => {
+    if (selectedCountry === 'Albania' && boundaryMethod === 'country') {
+      apiGet<{ regions: string[] }>('/albania/regions/').then(r => setAlbRegions(r.regions)).catch(() => {})
+    } else {
+      setAlbRegions([])
+      setSelectedAlbRegion('')
+      setAlbDistricts([])
+      setSelectedAlbDistrict('')
+    }
+  }, [selectedCountry, boundaryMethod])
+
+  // Load Albania districts when a region is selected
+  useEffect(() => {
+    if (selectedAlbRegion) {
+      setSelectedAlbDistrict('')
+      apiGet<{ districts: string[] }>(`/albania/districts/?region=${encodeURIComponent(selectedAlbRegion)}`)
+        .then(r => setAlbDistricts(r.districts)).catch(() => {})
+    } else {
+      setAlbDistricts([])
+      setSelectedAlbDistrict('')
+    }
+  }, [selectedAlbRegion])
 
   const effectiveX = isWind ? turbineDiameter * 3 : gridSizeX
   const effectiveY = isWind ? turbineDiameter * 5 : gridSizeY
@@ -79,11 +126,37 @@ export default function GridizationTab({ config, onComplete }: Props) {
         grid_size_x: effectiveX,
         grid_size_y: effectiveY,
       }
-      if (boundaryMethod === 'country') body.country_name = selectedCountry
+      if (boundaryMethod === 'country') {
+        body.country_name = selectedCountry
+        if (selectedCountry === 'Albania') {
+          if (selectedAlbDistrict) body.adm2_district = selectedAlbDistrict
+          else if (selectedAlbRegion) body.adm1_region = selectedAlbRegion
+        }
+      }
       if (boundaryMethod === 'eez') body.zone_name = selectedZone
 
       const res = await apiPost('/grid/create/', body)
       setResult(res)
+      setCommittedGridX(effectiveX)
+      setCommittedGridY(effectiveY)
+      setWktCells([])
+      setTooDenseForMap((res.total_cells ?? 0) > 300000)
+      setGridSource('generate')
+      setMapKey(k => k + 1)
+      // Fetch full grid data for DataTable
+      try {
+        const full = await apiGet<{ data: any[]; columns: string[] }>('/grid/data/?page=1&page_size=100000')
+        setGridData({ columns: full.columns, data: full.data })
+        // Derive exact grid origin from actual cell boundaries (min left / min bottom)
+        let minLeft = Infinity, minBottom = Infinity
+        for (const r of full.data) {
+          const l = Number(r.left); const b = Number(r.bottom)
+          if (isFinite(l) && l < minLeft) minLeft = l
+          if (isFinite(b) && b < minBottom) minBottom = b
+        }
+        if (isFinite(minLeft)) setGridOriginX(minLeft)
+        if (isFinite(minBottom)) setGridOriginY(minBottom)
+      } catch { /* keep preview if full fetch fails */ }
       onComplete()
     } catch (e: any) {
       setError(e.message)
@@ -93,12 +166,29 @@ export default function GridizationTab({ config, onComplete }: Props) {
   }
 
   async function uploadGrid(file: File) {
-    setLoading(true); setError(''); setResult(null)
+    setLoading(true); setError(''); setResult(null); setGridData(null)
     try {
       const fd = new FormData()
       fd.append('grid_file', file)
       const res = await apiPost('/grid/upload/', fd)
       setResult(res)
+      setCommittedGridX(0)
+      setCommittedGridY(0)
+      const MAX_MAP_CELLS = 300000
+      const totalCells: number = res.total_cells ?? 0
+      const dense = totalCells > MAX_MAP_CELLS
+      setTooDenseForMap(dense)
+      try {
+        const full = await apiGet<{ data: any[]; columns: string[] }>('/grid/data/?page=1&page_size=100000')
+        setGridData({ columns: full.columns, data: full.data })
+        if (!dense) {
+          setWktCells(full.data.map((r: any) => r.wkt).filter(Boolean))
+        } else {
+          setWktCells([])
+        }
+      } catch { /* keep if fetch fails */ }
+      setGridSource('upload')
+      setMapKey(k => k + 1)
       onComplete()
     } catch (e: any) {
       setError(e.message)
@@ -115,7 +205,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
       {/* Mode toggle */}
       <div className="flex gap-4">
         {(['generate', 'upload'] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)}
+          <button key={m} onClick={() => { setMode(m); setFocusCell(null) }}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition ${mode === m ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border hover:bg-slate-50'}`}>
             {m === 'generate' ? '🌍 Generate New Grid' : '📤 Upload Existing Grid'}
           </button>
@@ -129,23 +219,43 @@ export default function GridizationTab({ config, onComplete }: Props) {
             <div className="bg-white rounded-xl p-6 shadow-sm border space-y-4">
               <h3 className="font-semibold text-slate-700">Boundary Definition</h3>
 
-            {config.project_type !== 'OffShore' && (
-              <div className="flex gap-3">
-                {(['country', 'file'] as const).map(bm => (
-                  <button key={bm} onClick={() => setBoundaryMethod(bm)}
-                    className={`px-4 py-1.5 rounded text-sm ${boundaryMethod === bm ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-slate-100 text-slate-600'}`}>
-                    {bm === 'country' ? 'Select Country' : 'Upload File'}
-                  </button>
-                ))}
-              </div>
-            )}
+
 
             {boundaryMethod === 'country' && (
-              <select value={selectedCountry} onChange={e => setSelectedCountry(e.target.value)}
-                className="w-full border rounded-lg p-2.5 text-sm">
-                <option value="">-- Select Country --</option>
-                {countries.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <div className="space-y-3">
+                <select value={selectedCountry} onChange={e => { setSelectedCountry(e.target.value); setSelectedAlbRegion(''); setSelectedAlbDistrict('') }}
+                  className="w-full border rounded-lg p-2.5 text-sm">
+                  <option value="">-- Select Country --</option>
+                  {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                {/* Albania region/district drill-down */}
+                {selectedCountry === 'Albania' && albRegions.length > 0 && (
+                  <div className="pl-3 border-l-2 border-blue-200 space-y-2">
+                    <p className="text-xs font-medium text-blue-700">🏔️ Optional: narrow to a region or district</p>
+                    <select value={selectedAlbRegion} onChange={e => setSelectedAlbRegion(e.target.value)}
+                      className="w-full border rounded-lg p-2.5 text-sm">
+                      <option value="">-- Entire Albania --</option>
+                      {albRegions.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+
+                    {selectedAlbRegion && albDistricts.length > 0 && (
+                      <select value={selectedAlbDistrict} onChange={e => setSelectedAlbDistrict(e.target.value)}
+                        className="w-full border rounded-lg p-2.5 text-sm">
+                        <option value="">-- All of {selectedAlbRegion} region --</option>
+                        {albDistricts.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    )}
+
+                    {(selectedAlbRegion || selectedAlbDistrict) && (
+                      <p className="text-xs text-slate-500">
+                        Grid boundary: <strong>{selectedAlbDistrict || selectedAlbRegion}</strong>
+                        {selectedAlbDistrict ? ' (district)' : ' (region)'}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
 
             {boundaryMethod === 'eez' && (
@@ -156,11 +266,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
               </select>
             )}
 
-            {boundaryMethod === 'file' && (
-              <p className="text-sm text-slate-500 italic">
-                File upload for boundaries will use the API endpoint. For now select a country.
-              </p>
-            )}
+
           </div>
 
           {/* Right: Grid Params */}
@@ -235,27 +341,43 @@ export default function GridizationTab({ config, onComplete }: Props) {
           </div>
         </div>
 
-          {/* Map Preview */}
-          {(selectedCountry || selectedZone) && (
-            <div className="bg-white rounded-xl p-4 shadow-sm border">
-              <h3 className="font-semibold text-slate-700 mb-3">🗺️ Preview</h3>
-              <CountryMapPreview
-                country={boundaryMethod === 'country' ? selectedCountry : undefined}
-                zone={boundaryMethod === 'eez' ? selectedZone : undefined}
-                gridSizeX={effectiveX}
-                gridSizeY={effectiveY}
-              />
-            </div>
-          )}
         </div>
       ) : (
         /* Upload */
-        <div className="bg-white rounded-xl p-6 shadow-sm border max-w-lg">
-          <h3 className="font-semibold text-slate-700 mb-4">📤 Upload Grid CSV</h3>
-          <input type="file" accept=".csv"
-            onChange={e => { if (e.target.files?.[0]) uploadGrid(e.target.files[0]) }}
-            className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-          <p className="text-xs text-slate-400 mt-2">Required columns: cell_id, wkt</p>
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl p-6 shadow-sm border max-w-lg">
+            <h3 className="font-semibold text-slate-700 mb-4">📤 Upload Grid CSV</h3>
+            <input type="file" accept=".csv"
+              onChange={e => { if (e.target.files?.[0]) uploadGrid(e.target.files[0]) }}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+            <p className="text-xs text-slate-400 mt-2">Required columns: cell_id, wkt</p>
+          </div>
+          {loading && (
+            <div className="mt-3">
+              <ProcessingOverlay message="Uploading grid..." accentColor="blue" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Unified Map — always visible, shared between both tabs */}
+      {(selectedCountry || selectedZone || wktCells.length > 0 || gridSource === 'upload') && (
+        <div className="bg-white rounded-xl p-4 shadow-sm border">
+          <h3 className="font-semibold text-slate-700 mb-3">🗺️ Map</h3>
+          <CountryMapPreview
+            key={mapKey}
+            country={gridSource !== 'upload' && boundaryMethod === 'country' ? selectedCountry : undefined}
+            zone={gridSource !== 'upload' && boundaryMethod === 'eez' ? selectedZone : undefined}
+            albRegion={gridSource !== 'upload' ? selectedAlbRegion || undefined : undefined}
+            albDistrict={gridSource !== 'upload' ? selectedAlbDistrict || undefined : undefined}
+            gridSizeX={gridSource === 'generate' ? committedGridX : 0}
+            gridSizeY={gridSource === 'generate' ? committedGridY : 0}
+            gridOriginX={gridSource === 'generate' ? gridOriginX : 0}
+            gridOriginY={gridSource === 'generate' ? gridOriginY : 0}
+            focusCell={focusCell}
+            wktCells={gridSource === 'upload' ? wktCells : undefined}
+            uploadMode={gridSource === 'upload'}
+          />
         </div>
       )}
 
@@ -264,28 +386,24 @@ export default function GridizationTab({ config, onComplete }: Props) {
       {result && (
         <div className="bg-white rounded-xl p-6 shadow-sm border space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-emerald-700">✅ {result.message}</h3>
+            <h3 className="font-semibold text-emerald-700">
+              ✅ {result.message}
+              {committedGridX > 0 && (
+                <span className="ml-2 text-sm font-normal text-slate-500">({committedGridX}×{committedGridY}m)</span>
+              )}
+              {tooDenseForMap && (
+                <span className="ml-2 text-sm font-normal text-amber-500">(too dense to display on map)</span>
+              )}
+            </h3>
             <button onClick={() => apiDownload('/grid/download/', 'grid.csv')}
               className="text-sm px-4 py-1.5 bg-slate-100 rounded-lg hover:bg-slate-200 transition">
               📥 Download CSV
             </button>
           </div>
-          {/* Preview Table */}
-          {result.preview?.length > 0 && (
-            <div className="overflow-x-auto max-h-72">
-              <table className="min-w-full text-xs">
-                <thead className="bg-slate-100 sticky top-0">
-                  <tr>{result.columns?.map((c: string) => <th key={c} className="px-3 py-2 text-left font-medium text-slate-600">{c}</th>)}</tr>
-                </thead>
-                <tbody className="divide-y">
-                  {result.preview.slice(0, 20).map((row: any, i: number) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      {result.columns?.map((c: string) => <td key={c} className="px-3 py-1.5 text-slate-700">{row[c]}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {/* Data Table */}
+          {gridData && gridData.data.length > 0 && (
+            <AnalysisResultsTable columns={gridData.columns} data={gridData.data}
+              onRowClick={(row) => { if (row.wkt) setFocusCell(row.wkt) }} />
           )}
         </div>
       )}

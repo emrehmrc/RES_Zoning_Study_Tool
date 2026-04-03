@@ -11,7 +11,10 @@ class Config:
     TEMP_DIR = BASE_DIR / "temp"
 
     # Default path for NUTS data
-    NUTS_PATH = BASE_DIR / "NUTS_RG_01M_2021_4326.geojson"
+    NUTS_PATH = BASE_DIR / "data" / "Country_Region_Data" / "NUTS_RG_01M_2021_4326.geojson"
+
+    # Albania administrative boundaries (ADM1=Region, ADM2=District)
+    ALBANIA_ADM_PATH = BASE_DIR / "data" / "Country_Region_Data" / "alb_admbnda_adm2_2019c.shp"
 
     # Default path for EEZ (Exclusive Economic Zone) data - used for Off-Shore mode
     EEZ_PATH = BASE_DIR / "Off_shore_shapes" / "EEZ_Europe.shp"
