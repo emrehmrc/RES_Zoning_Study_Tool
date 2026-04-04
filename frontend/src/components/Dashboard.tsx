@@ -136,7 +136,7 @@ export default function Dashboard() {
             {TABS.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); if (tab.id !== 0) refreshStatus() }}
                 className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
                   activeTab === tab.id
                     ? 'bg-slate-50 border border-b-0 border-slate-200 text-slate-800'

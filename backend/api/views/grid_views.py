@@ -339,12 +339,18 @@ class GridDataView(APIView):
         start = (page - 1) * page_size
         end = start + page_size
 
+        slice_df = grid_df.iloc[start:end].copy()
+        # Replace NaN/Inf with None so JSON serialisation never breaks
+        import numpy as np
+        slice_df = slice_df.replace([np.inf, -np.inf], None)
+        slice_df = slice_df.where(slice_df.notna(), None)
+
         return Response({
             'total': len(grid_df),
             'page': page,
             'page_size': page_size,
             'columns': grid_df.columns.tolist(),
-            'data': grid_df.iloc[start:end].to_dict(orient='records'),
+            'data': slice_df.to_dict(orient='records'),
         })
 
 

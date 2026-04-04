@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiDelete, apiDownload, apiRunWithProgress } from '@/l
 import type { ProjectConfig, ProjectStatus, LayerConfig } from '@/lib/types'
 import ProcessingOverlay from './ProcessingOverlay'
 import AnalysisResultsTable from './AnalysisResultsTable'
+import FileBrowserModal from './FileBrowserModal'
 
 const LayerMapPreview = dynamic(() => import('./LayerMapPreview'), { ssr: false })
 
@@ -22,6 +23,7 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
 
   // Native file dialog
   const [fileDialogLoading, setFileDialogLoading] = useState(false)
+  const [showFileBrowser, setShowFileBrowser] = useState(false)
 
   // New layer form
   const [layerMode, setLayerMode] = useState<'predefined' | 'custom'>('predefined')
@@ -109,8 +111,15 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
     setFileDialogLoading(true)
     try {
       const r = await apiGet<{ path: string; cancelled: boolean }>('/native-file-dialog/')
-      if (!r.cancelled && r.path) setRasterPath(r.path)
-    } catch (e: any) { setError(e.message) }
+      if (!r.cancelled && r.path) {
+        setRasterPath(r.path)
+      } else {
+        // Headless/Docker environment — fall back to server-side file browser
+        setShowFileBrowser(true)
+      }
+    } catch (e: any) {
+      setShowFileBrowser(true)
+    }
     finally { setFileDialogLoading(false) }
   }
 
@@ -124,6 +133,13 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-slate-800">🎯 Step 2: Layer Calculation</h2>
+
+      {showFileBrowser && (
+        <FileBrowserModal
+          onSelect={(path) => { setRasterPath(path); setShowFileBrowser(false) }}
+          onClose={() => setShowFileBrowser(false)}
+        />
+      )}
       <hr />
 
       {(!status || !status.grid_created) ? (

@@ -62,7 +62,7 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
         const info = await apiGet<{ geojson: any; bounds: [[number, number], [number, number]] }>('/grid-info/')
         if (cancelled || !L || !mapRef.current) return
         if (uploadBoundaryLayerRef.current) { mapRef.current.removeLayer(uploadBoundaryLayerRef.current); uploadBoundaryLayerRef.current = null }
-        const layer = L.geoJSON(info.geojson, {
+        const layer = L!.geoJSON(info.geojson, {
           style: { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.08 },
         }).addTo(mapRef.current)
         uploadBoundaryLayerRef.current = layer
@@ -290,11 +290,11 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
 
     if (allLatLngs.length < 3) return
 
-    const bounds = L.latLngBounds(allLatLngs.map(([lat, lng]) => L.latLng(lat, lng)))
+    const bounds = L!.latLngBounds(allLatLngs.map(([lat, lng]) => L!.latLng(lat, lng)))
     if (!bounds.isValid()) return
     map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 })
 
-    const rect = L.polygon(allLatLngs, {
+    const rect = L!.polygon(allLatLngs, {
       color: '#ef4444', weight: 3, fillColor: '#ef4444', fillOpacity: 0.25, dashArray: '6 4',
     }).addTo(map)
     focusHighlightRef.current = rect
@@ -339,7 +339,7 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
 
     if (features.length === 0) return
 
-    const layer = L.geoJSON({ type: 'FeatureCollection', features } as any, {
+    const layer = L!.geoJSON({ type: 'FeatureCollection', features } as any, {
       style: { color: '#6366f1', weight: 1, fillColor: '#3b82f6', fillOpacity: 0.08 },
     }).addTo(map)
     uploadedCellsLayerRef.current = layer

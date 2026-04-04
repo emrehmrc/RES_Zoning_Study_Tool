@@ -138,7 +138,7 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
           grid_origin_y: number | null
         }>('/grid-info/')
         if (!mounted || !L || !mapRef.current) return
-        const bLayer = L.geoJSON(info.geojson, {
+        const bLayer = L!.geoJSON(info.geojson, {
           style: { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.06 },
         }).addTo(mapRef.current)
         boundaryLayerRef.current = bLayer
@@ -177,7 +177,7 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
     }
     if (!features.length) return
 
-    const layer = L.geoJSON({ type: 'FeatureCollection', features } as any, {
+    const layer = L!.geoJSON({ type: 'FeatureCollection', features } as any, {
       style: (feature: any) => {
         const s = feature?.properties?.score ?? 0
         return { color: '#475569', weight: 1, fillColor: scoreColor(s), fillOpacity: 0.55 }
@@ -200,7 +200,7 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
     const feats = wktToFeatures(focusWkt, 0)
     if (!feats.length) return
 
-    const highlight = L.geoJSON({ type: 'FeatureCollection', features: feats } as any, {
+    const highlight = L!.geoJSON({ type: 'FeatureCollection', features: feats } as any, {
       style: { color: '#ef4444', weight: 3, fillColor: '#ef4444', fillOpacity: 0.25, dashArray: '6 4' },
     }).addTo(map)
     focusHighlightRef.current = highlight
@@ -261,7 +261,7 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
     }
 
     if (lines.length > 0) {
-      const gLayer = L.polyline(lines as any, {
+      const gLayer = L!.polyline(lines as any, {
         color: '#6366f1', weight: 1, opacity: 0.5, interactive: false,
       }).addTo(mapRef.current)
       gridLayerRef.current = gLayer

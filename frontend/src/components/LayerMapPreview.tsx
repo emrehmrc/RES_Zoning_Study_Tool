@@ -153,7 +153,7 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
     if (boundaryLayerRef.current) {
       map.removeLayer(boundaryLayerRef.current)
     }
-    const bLayer = L.geoJSON(gridInfo.geojson, {
+    const bLayer = L!.geoJSON(gridInfo.geojson, {
       style: { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.08 },
     }).addTo(map)
     boundaryLayerRef.current = bLayer
@@ -211,7 +211,7 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
       }
 
       if (lines.length > 0) {
-        const gLayer = L.polyline(lines as any, {
+        const gLayer = L!.polyline(lines as any, {
           color: '#6366f1', weight: 2.5, opacity: 0.75, interactive: false,
         }).addTo(map)
         gridLayerRef.current = gLayer
@@ -351,11 +351,11 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
 
     if (allLatLngs.length < 3) return
 
-    const bounds = L.latLngBounds(allLatLngs.map(([lat, lng]) => L.latLng(lat, lng)))
+    const bounds = L!.latLngBounds(allLatLngs.map(([lat, lng]) => L!.latLng(lat, lng)))
     if (!bounds.isValid()) return
     map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 })
 
-    const rect = L.polygon(allLatLngs, {
+    const rect = L!.polygon(allLatLngs, {
       color: '#ef4444', weight: 3, fillColor: '#ef4444', fillOpacity: 0.25, dashArray: '6 4',
     }).addTo(map)
     focusHighlightRef.current = rect

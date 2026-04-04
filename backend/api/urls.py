@@ -10,7 +10,8 @@ from api.views.grid_views import (
 from api.views.layer_views import (
     LayerListView, AddLayerView, RemoveLayerView,
     RasterFilesView, UploadRasterFileView, RunAnalysisView, AnalysisResultsView, AnalysisDownloadView,
-    BrowseDirectoryView, NativeFileDialogView, RunAnalysisAsyncView, TaskProgressView,
+    BrowseDirectoryView, BrowseDefaultPathView, BrowseSaveLastDirView,
+    NativeFileDialogView, RunAnalysisAsyncView, TaskProgressView,
     GridInfoView, RasterPreviewView,
 )
 from api.views.scoring_views import (
@@ -52,6 +53,8 @@ urlpatterns = [
     path('analysis/results/', AnalysisResultsView.as_view()),
     path('analysis/download/', AnalysisDownloadView.as_view()),
     path('browse/', BrowseDirectoryView.as_view()),
+    path('browse/default-path/', BrowseDefaultPathView.as_view()),
+    path('browse/save-last-dir/', BrowseSaveLastDirView.as_view()),
     path('native-file-dialog/', NativeFileDialogView.as_view()),
     path('task/<str:task_id>/progress/', TaskProgressView.as_view()),
     path('grid-info/', GridInfoView.as_view()),

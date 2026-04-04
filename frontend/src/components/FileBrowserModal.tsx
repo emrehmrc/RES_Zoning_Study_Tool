@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { apiGet } from '@/lib/api'
+import { apiGet, apiPost } from '@/lib/api'
 
 const LS_LAST_PATH = 'fileBrowser_lastPath'
 const LS_RECENT = 'fileBrowser_recentFolders'
@@ -20,6 +20,17 @@ function persistRecent(folder: string) {
 
 function folderLabel(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path
+}
+
+/** Join a base directory path with a child name using the correct separator. */
+function pathJoin(base: string, child: string): string {
+  if (!base) return child
+  if (base.startsWith('/')) {
+    // Unix / Docker path
+    return base.endsWith('/') ? `${base}${child}` : `${base}/${child}`
+  }
+  // Windows path
+  return base.endsWith('\\') ? `${base}${child}` : `${base}\\${child}`
 }
 
 interface BrowseResult {
@@ -58,22 +69,24 @@ export default function FileBrowserModal({ onSelect, onClose }: Props) {
   }, [])
 
   useEffect(() => {
-    const recent = loadRecent()
-    setRecentFolders(recent)
-    // Open at last used path; fall back to root on error
-    const lastPath = localStorage.getItem(LS_LAST_PATH) || ''
-    if (lastPath) {
-      navigate(lastPath).catch(() => navigate(''))
-    } else {
-      navigate('')
-    }
+    setRecentFolders(loadRecent())
+    // Fetch default path from backend (persisted last_dir or /app/data in Docker)
+    apiGet<{ path: string }>('/browse/default-path/')
+      .then(r => navigate(r.path).catch(() => navigate('')))
+      .catch(() => {
+        const lastPath = localStorage.getItem(LS_LAST_PATH) || ''
+        navigate(lastPath).catch(() => navigate(''))
+      })
   }, [navigate])
 
   function selectFile(filename: string) {
-    const sep = currentPath.endsWith('\\') || currentPath.endsWith('/') ? '' : '\\'
-    const fullPath = currentPath ? `${currentPath}${sep}${filename}` : filename
+    const fullPath = currentPath ? pathJoin(currentPath, filename) : filename
     persistRecent(currentPath)
     setRecentFolders(loadRecent())
+    // Persist to backend so Docker restarts remember the last directory
+    if (currentPath) {
+      apiPost('/browse/save-last-dir/', { directory: currentPath }).catch(() => {})
+    }
     onSelect(fullPath)
     onClose()
   }
@@ -92,8 +105,8 @@ export default function FileBrowserModal({ onSelect, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl flex flex-col" style={{ maxHeight: '80vh' }}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl flex flex-col" style={{ maxHeight: '80vh', zIndex: 9999 }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b">
           <h3 className="font-semibold text-slate-700">📂 Select Raster File (.tif)</h3>
@@ -108,7 +121,7 @@ export default function FileBrowserModal({ onSelect, onClose }: Props) {
             className="px-2 py-0.5 bg-white border rounded text-xs hover:bg-slate-100 disabled:opacity-40"
             title="Go up"
           >⬆ Up</button>
-          <span className="truncate font-mono text-xs flex-1">{currentPath || 'Drives'}</span>
+          <span className="truncate font-mono text-xs flex-1">{currentPath || '/'}</span>
           {recentFolders.length > 0 && (
             <button
               onClick={() => setShowRecent(v => !v)}
@@ -155,10 +168,7 @@ export default function FileBrowserModal({ onSelect, onClose }: Props) {
               {browsed.folders.map(folder => (
                 <button
                   key={folder}
-                  onClick={() => {
-                    const sep = currentPath.endsWith('\\') || currentPath.endsWith('/') ? '' : '\\'
-                    navigate(currentPath ? `${currentPath}${sep}${folder}` : folder)
-                  }}
+                  onClick={() => navigate(currentPath ? pathJoin(currentPath, folder) : folder)}
                   className="w-full flex items-center gap-2 px-3 py-1.5 rounded hover:bg-blue-50 text-left text-sm text-slate-700"
                 >
                   <span className="text-base">📁</span>

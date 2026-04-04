@@ -248,6 +248,65 @@ class AnalysisDownloadView(APIView):
 
 # ---- File / Directory browser ----
 
+import json as _json
+from config import Config as _BrowseConfig
+
+_BROWSER_PREFS_FILE = _BrowseConfig.BASE_DIR / 'config' / 'browser_prefs.json'
+
+def _load_browser_prefs() -> dict:
+    try:
+        if _BROWSER_PREFS_FILE.exists():
+            return _json.loads(_BROWSER_PREFS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    return {}
+
+def _save_browser_prefs(prefs: dict):
+    try:
+        _BROWSER_PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _BROWSER_PREFS_FILE.write_text(_json.dumps(prefs, indent=2), encoding='utf-8')
+    except Exception:
+        pass
+
+
+class BrowseDefaultPathView(APIView):
+    """Return the best default directory for the file browser."""
+
+    def get(self, request):
+        prefs = _load_browser_prefs()
+        last = prefs.get('last_dir', '')
+
+        # If saved path still exists, use it
+        if last and os.path.isdir(last):
+            return Response({'path': last})
+
+        # Docker / Linux: start in /app/data if it exists
+        if os.name != 'nt':
+            data_dir = '/app/data'
+            if os.path.isdir(data_dir):
+                return Response({'path': data_dir})
+            return Response({'path': '/'})
+
+        # Windows: start at project data dir
+        from config import Config
+        data_dir = str(Config.DATA_DIR)
+        if os.path.isdir(data_dir):
+            return Response({'path': data_dir})
+        return Response({'path': ''})
+
+
+class BrowseSaveLastDirView(APIView):
+    """Persist the last used directory."""
+
+    def post(self, request):
+        directory = request.data.get('directory', '')
+        if directory and os.path.isdir(directory):
+            prefs = _load_browser_prefs()
+            prefs['last_dir'] = directory
+            _save_browser_prefs(prefs)
+        return Response({'ok': True})
+
+
 class BrowseDirectoryView(APIView):
     """Return folders and .tif files under a given directory path."""
 
@@ -256,7 +315,7 @@ class BrowseDirectoryView(APIView):
     def get(self, request):
         path = request.query_params.get('path', '')
 
-        # Default: show drive roots on Windows, or / on Linux
+        # Default: show drive roots on Windows, or filesystem root on Linux/Docker
         if not path:
             if os.name == 'nt':
                 import string
@@ -273,7 +332,8 @@ class BrowseDirectoryView(APIView):
         if not os.path.isdir(path):
             return Response({'error': 'Directory not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        parent = os.path.dirname(path)
+        # At filesystem root, parent stays empty so "Up" disables
+        parent = '' if path == '/' else os.path.dirname(path)
         folders = []
         files = []
 
@@ -299,7 +359,8 @@ class BrowseDirectoryView(APIView):
 
 
 class NativeFileDialogView(APIView):
-    """Open the native OS file picker dialog and return the selected path."""
+    """Open the native OS file picker dialog and return the selected path.
+    Only works in local desktop mode; returns 'not supported' in headless/server environments."""
 
     def get(self, request):
         import threading
@@ -307,23 +368,25 @@ class NativeFileDialogView(APIView):
         result = [None]
 
         def _open_dialog():
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-            root.focus_force()
-            file_path = filedialog.askopenfilename(
-                title="Select Raster File",
-                filetypes=[("GeoTIFF files", "*.tif *.tiff"), ("All files", "*.*")],
-            )
-            root.destroy()
-            result[0] = file_path
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)
+                root.focus_force()
+                file_path = filedialog.askopenfilename(
+                    title="Select Raster File",
+                    filetypes=[("GeoTIFF files", "*.tif *.tiff"), ("All files", "*.*")],
+                )
+                root.destroy()
+                result[0] = file_path
+            except Exception:
+                result[0] = None
 
-        # tkinter must run on its own thread in Django context
         t = threading.Thread(target=_open_dialog)
         t.start()
-        t.join(timeout=120)  # 2 min max wait
+        t.join(timeout=30)
 
         path = result[0]
         if not path:

@@ -156,7 +156,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
         }
         if (isFinite(minLeft)) setGridOriginX(minLeft)
         if (isFinite(minBottom)) setGridOriginY(minBottom)
-      } catch { /* keep preview if full fetch fails */ }
+      } catch (e: any) { setError('Table load error: ' + (e?.message || String(e))) }
       onComplete()
     } catch (e: any) {
       setError(e.message)
@@ -186,7 +186,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
         } else {
           setWktCells([])
         }
-      } catch { /* keep if fetch fails */ }
+      } catch (e: any) { setError('Table load error: ' + (e?.message || String(e))) }
       setGridSource('upload')
       setMapKey(k => k + 1)
       onComplete()
