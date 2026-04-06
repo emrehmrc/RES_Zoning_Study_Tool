@@ -16,7 +16,7 @@ from api.views.layer_views import (
 )
 from api.views.scoring_views import (
     RunScoringView, ScoringResultsView, ScoringDownloadView, ImportScoringCSVView,
-    RunScoringAsyncView,
+    RunScoringAsyncView, KvLayerWeightsView,
 )
 from api.views.cluster_views import (
     RunClusterView, ClusterResultsView, ClusterDownloadView,
@@ -66,6 +66,7 @@ urlpatterns = [
     path('scoring/results/', ScoringResultsView.as_view()),
     path('scoring/download/', ScoringDownloadView.as_view()),
     path('scoring/import-csv/', ImportScoringCSVView.as_view()),
+    path('scoring/kv-weights/', KvLayerWeightsView.as_view()),
 
     # Clustering
     path('cluster/run/', RunClusterView.as_view()),

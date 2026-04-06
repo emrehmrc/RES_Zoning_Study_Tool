@@ -52,6 +52,7 @@ class RunScoringView(APIView):
 
         scoring_config = request.data.get('scoring_config', {})
         constraint_config = request.data.get('constraint_config', {})
+        kv_weights = request.data.get('kv_weights', {})
 
         try:
             results_df = df.copy()
@@ -130,6 +131,7 @@ class RunScoringView(APIView):
                 })
 
             SessionManager.save_dataframe(request.session_id, 'final_scored_results', results_df)
+            SessionManager.update_session(request.session_id, kv_layer_weights=kv_weights)
 
             total_cells = len(results_df)
             excluded_cells = int((results_df['FINAL_GRID_SCORE'] == 0).sum())
@@ -189,6 +191,13 @@ class ScoringResultsView(APIView):
         })
 
 
+class KvLayerWeightsView(APIView):
+    """Return kV line/substation layer weights saved during the last scoring run."""
+    def get(self, request):
+        session = SessionManager.get_session(request.session_id)
+        return Response(session.get('kv_layer_weights', {}))
+
+
 class ScoringDownloadView(APIView):
     def get(self, request):
         result = SessionManager.load_dataframe(request.session_id, 'final_scored_results')
@@ -203,7 +212,7 @@ class ScoringDownloadView(APIView):
 
 # ---- Async scoring ----
 
-def _run_scoring_work(session_id, scoring_config, constraint_config, *, progress_callback):
+def _run_scoring_work(session_id, scoring_config, constraint_config, kv_weights=None, *, progress_callback):
     """Run level scoring in background thread."""
     progress_callback(5, 'Loading analysis data...')
     df = SessionManager.load_dataframe(session_id, 'scoring_results')
@@ -291,6 +300,8 @@ def _run_scoring_work(session_id, scoring_config, constraint_config, *, progress
 
     progress_callback(92, 'Saving results...')
     SessionManager.save_dataframe(session_id, 'final_scored_results', results_df)
+    if kv_weights:
+        SessionManager.update_session(session_id, kv_layer_weights=kv_weights)
 
     total_cells = len(results_df)
     excluded_cells = int((results_df['FINAL_GRID_SCORE'] == 0).sum())
@@ -336,11 +347,13 @@ class RunScoringAsyncView(APIView):
 
         scoring_config = request.data.get('scoring_config', {})
         constraint_config = request.data.get('constraint_config', {})
+        kv_weights = request.data.get('kv_weights', {})
 
         task_id = create_task(
             _run_scoring_work,
             session_id=request.session_id,
             scoring_config=scoring_config,
             constraint_config=constraint_config,
+            kv_weights=kv_weights,
         )
         return Response({'task_id': task_id, 'message': 'Scoring started.'})

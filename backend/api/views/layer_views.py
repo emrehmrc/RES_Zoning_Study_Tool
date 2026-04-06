@@ -367,6 +367,8 @@ class NativeFileDialogView(APIView):
 
         result = [None]
 
+        dialog_supported = [True]
+
         def _open_dialog():
             try:
                 import tkinter as tk
@@ -380,19 +382,24 @@ class NativeFileDialogView(APIView):
                     filetypes=[("GeoTIFF files", "*.tif *.tiff"), ("All files", "*.*")],
                 )
                 root.destroy()
-                result[0] = file_path
+                result[0] = file_path  # '' if user cancelled, non-empty if selected
             except Exception:
-                result[0] = None
+                result[0] = None      # None means tkinter not available (headless)
+                dialog_supported[0] = False
 
         t = threading.Thread(target=_open_dialog)
         t.start()
         t.join(timeout=30)
 
         path = result[0]
-        if not path:
-            return Response({'path': '', 'cancelled': True})
-
-        return Response({'path': path, 'cancelled': False})
+        if path:
+            return Response({'path': path, 'cancelled': False, 'headless': False})
+        elif dialog_supported[0]:
+            # tkinter opened fine but user cancelled (returned empty string)
+            return Response({'path': '', 'cancelled': True, 'headless': False})
+        else:
+            # tkinter not available — headless/Docker environment
+            return Response({'path': '', 'cancelled': True, 'headless': True})
 
 def _run_analysis_work(session_id, layer_configs, *, progress_callback):
     """Runs layer analysis using the original fast parallel method."""

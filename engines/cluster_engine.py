@@ -47,13 +47,21 @@ class ClusterEngine:
         return gdf
 
     @staticmethod
-    def calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage=True):
+    def calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage=True, default_cell_area=None):
         """
         Calculates the actual capacity of each cell.
-        If adjust_for_coverage is True, reduces capacity proportionally to combined layer coverage.
+        If default_cell_area is provided, scales capacity by (cell_area / default_cell_area),
+        so clipped edge cells receive proportionally less capacity than full cells.
+        If adjust_for_coverage is True, also reduces capacity proportionally to combined layer coverage.
         """
         capacities = pd.Series(nominal_capacity_mw, index=gdf.index, dtype=float)
-        
+
+        # Scale by cell area ratio (handles intersection-clipped partial cells)
+        if default_cell_area and default_cell_area > 0:
+            cell_areas = gdf.geometry.area
+            area_ratio = (cell_areas / default_cell_area).clip(upper=1.0)
+            capacities = capacities * area_ratio
+
         if adjust_for_coverage:
             coverage_cols = [c for c in gdf.columns if c.endswith('_coverage_pct')]
             if coverage_cols:
@@ -217,7 +225,7 @@ class ClusterEngine:
         return cluster_gdf
 
     @classmethod
-    def run_clustering_pipeline(cls, filepath_or_df, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage=True):
+    def run_clustering_pipeline(cls, filepath_or_df, nominal_capacity_mw, max_capacity_mw, adjust_for_coverage=True, default_cell_area=None):
         """
         Executes the entire end-to-end vectorized clustering pipeline.
         Returns the final clustered GeoDataFrame.
@@ -227,7 +235,7 @@ class ClusterEngine:
         gdf = cls.load_and_prepare_data(filepath_or_df)
         t1 = time.time()
         
-        gdf = cls.calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage)
+        gdf = cls.calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage, default_cell_area=default_cell_area)
         t2 = time.time()
         
         gdf, G, components = cls.build_adjacency_components(gdf)

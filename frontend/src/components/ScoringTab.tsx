@@ -110,14 +110,16 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
   async function openNativeFileDialog() {
     setFileDialogLoading(true)
     try {
-      const r = await apiGet<{ path: string; cancelled: boolean }>('/native-file-dialog/')
+      const r = await apiGet<{ path: string; cancelled: boolean; headless: boolean }>('/native-file-dialog/')
       if (!r.cancelled && r.path) {
         setRasterPath(r.path)
-      } else {
-        // Headless/Docker environment — fall back to server-side file browser
+      } else if (r.headless) {
+        // Tkinter not available (headless/Docker) — fall back to server-side file browser
         setShowFileBrowser(true)
       }
-    } catch (e: any) {
+      // else: user cancelled the native dialog — do nothing
+    } catch {
+      // Network/server error — fall back to server-side file browser
       setShowFileBrowser(true)
     }
     finally { setFileDialogLoading(false) }

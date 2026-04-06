@@ -9,6 +9,20 @@ import AnalysisResultsTable from './AnalysisResultsTable'
 
 const ClusterMapPreview = dynamic(() => import('./ClusterMapPreview'), { ssr: false })
 
+function isKvConnectionLayer(name: string): boolean {
+  return /\b(110|220|400)\s*kv/i.test(name) && /line|substation/i.test(name)
+}
+
+function matchRuleToLayer(rule: ClusterScoringRule, layerName: string): boolean {
+  const kvMatch = layerName.match(/\b(110|220|400)\b/)
+  if (!kvMatch) return false
+  const kv = parseInt(kvMatch[1])
+  const isLine = /line/i.test(layerName) && !/substation/i.test(layerName)
+  const isSub = /substation/i.test(layerName)
+  const kind = isLine ? 'Line' : (isSub ? 'Substation' : null)
+  return kind !== null && kv === rule.kv && kind === rule.kind
+}
+
 /** Human-friendly labels for financial constant keys */
 const FINANCIAL_LABELS: Record<string, { label: string; unit?: string; modes?: string[] }> = {
   pv_capex_per_mw:          { label: 'PV CAPEX Per MW', unit: '$' },
@@ -30,6 +44,8 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
   const [source, setSource] = useState<'step3' | 'upload'>('step3')
 
   const [scoringRules, setScoringRules] = useState<ClusterScoringRule[]>([])
+  const [kvWeights, setKvWeights] = useState<Record<string, number>>({})
+  const [configuredLayers, setConfiguredLayers] = useState<string[]>([])
   const [financialConstants, setFinancialConstants] = useState<Record<string, any>>({})
   const [cpValues, setCpValues] = useState<any[]>([])
 
@@ -48,14 +64,18 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
 
   const loadRefData = useCallback(async () => {
     try {
-      const [rules, fin, cp] = await Promise.all([
+      const [rules, fin, cp, kv, layerList] = await Promise.all([
         apiGet<ClusterScoringRule[]>('/scoring-rules/'),
         apiGet<Record<string, any>>('/financial-constants/'),
         apiGet<any[]>('/cp-values/'),
+        apiGet<Record<string, number>>('/scoring/kv-weights/'),
+        apiGet<{ layers: { prefix: string }[] }>('/layers/'),
       ])
       setScoringRules(rules)
       setFinancialConstants(fin)
       setCpValues(cp)
+      setKvWeights(kv)
+      setConfiguredLayers(layerList.layers.map(l => l.prefix))
     } catch { /* ignore */ }
   }, [])
 
@@ -94,10 +114,28 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
     } catch (e: any) { setError(e.message) }
   }
 
+  // Computed: only show rules for kV layers that are actually configured in this session
+  const filteredRules = scoringRules.filter(rule =>
+    configuredLayers.some(l => isKvConnectionLayer(l) && matchRuleToLayer(rule, l))
+  )
+
+  function getRuleWeight(rule: ClusterScoringRule): number {
+    for (const layerName of configuredLayers) {
+      if (isKvConnectionLayer(layerName) && matchRuleToLayer(rule, layerName) && kvWeights[layerName] !== undefined) {
+        return kvWeights[layerName]
+      }
+    }
+    return rule.weight_frac
+  }
+
   function updateRule(idx: number, field: string, value: any) {
+    // Map from filteredRules index back to scoringRules index
+    const rule = filteredRules[idx]
+    const realIdx = scoringRules.findIndex(r => r === rule)
+    if (realIdx === -1) return
     setScoringRules(prev => {
       const updated = [...prev]
-      updated[idx] = { ...updated[idx], [field]: value }
+      updated[realIdx] = { ...updated[realIdx], [field]: value }
       return updated
     })
   }
@@ -112,7 +150,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
           max_capacity_mw: maxCapacity,
           adjust_for_coverage: adjustCoverage,
           source,
-          scoring_rules: scoringRules,
+          scoring_rules: filteredRules.map(rule => ({ ...rule, weight_frac: getRuleWeight(rule) })),
           financial_constants: financialConstants,
           cp_values: cpValues,
         },
@@ -203,15 +241,19 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
           {/* Scoring Rules */}
           {activeRefTab === 'rules' && (
             <div className="space-y-3">
-              {scoringRules.length === 0 ? (
-                <p className="text-sm text-slate-400">No scoring rules configured.</p>
+              {filteredRules.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  {configuredLayers.some(isKvConnectionLayer)
+                    ? 'No connection rules found for configured kV layers.'
+                    : 'No kV layers configured in Step 2. Add kV line/substation layers to see connection rules here.'}
+                </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-xs">
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="px-2 py-1.5 text-left">Criteria</th>
-                        <th className="px-2 py-1.5 text-left">Weight</th>
+                        <th className="px-2 py-1.5 text-left">Tab 3 Weight</th>
                         <th className="px-2 py-1.5 text-left">kV</th>
                         <th className="px-2 py-1.5 text-left">Kind</th>
                         <th className="px-2 py-1.5 text-left">L1 Min</th>
@@ -223,13 +265,11 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {scoringRules.map((r, i) => (
+                      {filteredRules.map((r, i) => (
                         <tr key={i}>
                           <td className="px-2 py-1">{r.criteria_norm}</td>
                           <td className="px-2 py-1">
-                            <input type="number" value={r.weight_frac} step={0.01}
-                              onChange={e => updateRule(i, 'weight_frac', +e.target.value)}
-                              className="w-16 border rounded p-0.5 text-xs" />
+                            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{(getRuleWeight(r) * 100).toFixed(0)}%</span>
                           </td>
                           <td className="px-2 py-1">{r.kv}</td>
                           <td className="px-2 py-1">{r.kind}</td>

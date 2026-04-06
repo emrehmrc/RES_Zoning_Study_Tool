@@ -8,6 +8,11 @@ import AnalysisResultsTable from './AnalysisResultsTable'
 
 interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: number }
 
+// Detects layers that belong to kV transmission infrastructure (used for Tab 4 connection scoring)
+function isKvConnectionLayer(name: string): boolean {
+  return /\b(110|220|400)\s*kv/i.test(name) && /line|substation/i.test(name)
+}
+
 interface LayerScoringConfig {
   type: 'distance_coverage' | 'single_mode'
   column: string
@@ -74,7 +79,8 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
       const sConfigs: Record<string, LayerScoringConfig> = {}
 
       for (const [layerName, group] of Object.entries(groups)) {
-        modes[layerName] = 'scoring'
+        // For kV connection layers, default mode is fixed at 'connection'
+      modes[layerName] = isKvConnectionLayer(layerName) ? 'connection' as any : 'scoring'
 
         const defaultLevels = config.scoring_configs[layerName]?.levels
           || config.scoring_configs['default']?.levels
@@ -89,14 +95,15 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         const hasCoverage = 'coverage' in group.modes
 
         if (hasDistance && hasCoverage) {
-          const distLevels = config.scoring_configs['distance']?.levels || defaultLevels
+          const distLevels = config.scoring_configs[layerName]?.levels
+            || config.scoring_configs['distance']?.levels || defaultLevels
           sConfigs[layerName] = {
             type: 'distance_coverage',
             column: group.modes['distance'],
             distance_column: group.modes['distance'],
             coverage_column: group.modes['coverage'],
             max_coverage_threshold: 5,
-            weight: 10,
+            weight: config.scoring_configs[layerName]?.weight ?? 10,
             levels: distLevels.map((l: ScoringLevel) => ({ ...l })),
           }
         } else {
@@ -104,7 +111,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
           sConfigs[layerName] = {
             type: 'single_mode',
             column: group.modes[firstMode],
-            weight: 10,
+            weight: config.scoring_configs[layerName]?.weight ?? 10,
             levels: defaultLevels.map((l: ScoringLevel) => ({ ...l })),
           }
         }
@@ -113,9 +120,10 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
       // Preserve user-edited weights/levels for layers that already exist in state;
       // only apply defaults for brand-new layers (e.g. after a new analysis run).
       setColumnModes(prev => {
-        const merged: Record<string, 'scoring' | 'exclusion' | 'skip'> = {}
+        const merged: Record<string, 'scoring' | 'exclusion' | 'skip' | 'connection'> = {}
         for (const name of Object.keys(modes)) {
-          merged[name] = prev[name] ?? modes[name]
+          // kV layers are always 'connection' — ignore any previous mode
+          merged[name] = isKvConnectionLayer(name) ? 'connection' : (prev[name] ?? modes[name] as any)
         }
         return merged
       })
@@ -206,21 +214,26 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
     } catch (e: any) { setError(e.message) } finally { setImportLoading(false) }
   }
 
-  // Compute weight totals for scoring layers only
+  // Non-kV scoring layers (Tab 3 only)
   const scoringLayerWeights = Object.entries(columnModes)
     .filter(([, m]) => m === 'scoring')
     .map(([name]) => ({ name, weight: scoringConfigs[name]?.weight ?? 0 }))
-  const totalWeight = scoringLayerWeights.reduce((s, l) => s + l.weight, 0)
-  const weightOk = scoringLayerWeights.length === 0 || Math.abs(totalWeight - 100) < 0.01
+  // kV connection layers (contribute to Tab 4, but their weight counts toward 100%)
+  const kvLayerWeights = Object.entries(columnModes)
+    .filter(([, m]) => (m as string) === 'connection')
+    .map(([name]) => ({ name, weight: scoringConfigs[name]?.weight ?? 0 }))
+  const allLayerWeights = [...scoringLayerWeights, ...kvLayerWeights]
+  const totalWeight = allLayerWeights.reduce((s, l) => s + l.weight, 0)
+  const weightOk = allLayerWeights.length === 0 || Math.abs(totalWeight - 100) < 0.01
 
   function distributeWeightsEvenly() {
-    const n = scoringLayerWeights.length
+    const n = allLayerWeights.length
     if (n === 0) return
     const even = Math.round(100 / n)
     const remainder = 100 - even * n
     setScoringConfigs(prev => {
       const updated = { ...prev }
-      scoringLayerWeights.forEach(({ name }, i) => {
+      allLayerWeights.forEach(({ name }, i) => {
         updated[name] = { ...updated[name], weight: even + (i === 0 ? remainder : 0) }
       })
       return updated
@@ -249,8 +262,8 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
       }
 
       // Validate weight sum
-      if (scoringLayerWeights.length > 0 && !weightOk) {
-        const lines = scoringLayerWeights.map(({ name, weight }) => `  • ${name}: ${weight}%`).join('\n')
+      if (allLayerWeights.length > 0 && !weightOk) {
+        const lines = allLayerWeights.map(({ name, weight }) => `  • ${name}: ${weight}%`).join('\n')
         setError(
           `⚠️ Layer weights must sum to 100%.\n\nCurrent weights:\n${lines}\n\nTotal: ${totalWeight}%\n\n` +
           `Please adjust the weights or use the "Distribute Evenly" button.`
@@ -272,9 +285,17 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         }
       }
 
+      // Collect kV layer weights (for Tab 4 connection scoring)
+      const kvWeights: Record<string, number> = {}
+      for (const [layerName, mode] of Object.entries(columnModes)) {
+        if ((mode as string) === 'connection' && scoringConfigs[layerName]) {
+          kvWeights[layerName] = scoringConfigs[layerName].weight / 100
+        }
+      }
+
       const res = await apiRunWithProgress(
         '/scoring/run-async/',
-        { scoring_config: scoring, constraint_config: constraints },
+        { scoring_config: scoring, constraint_config: constraints, kv_weights: kvWeights },
       )
       // Fetch all rows for the data table
       try {
@@ -313,126 +334,144 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
           <div className="space-y-4">
             {Object.entries(layerGroups).map(([layerName, group]) => (
               <div key={layerName} className="bg-white rounded-xl p-5 shadow-sm border">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
+                {isKvConnectionLayer(layerName) ? (
+                  <div className="flex items-center justify-between">
                     <h4 className="font-medium text-slate-700">{layerName}</h4>
-                    <p className="text-xs text-slate-400">Modes: {Object.keys(group.modes).join(', ')}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {(['scoring', 'exclusion', 'skip'] as const).map(m => (
-                      <button key={m} onClick={() => setMode(layerName, m)}
-                        className={`px-3 py-1 rounded text-xs ${columnModes[layerName] === m
-                          ? m === 'scoring' ? 'bg-blue-600 text-white'
-                          : m === 'exclusion' ? 'bg-red-600 text-white'
-                          : 'bg-slate-400 text-white'
-                        : 'bg-slate-100 text-slate-600'}`}>
-                        {m === 'scoring' ? '📊 Scoring' : m === 'exclusion' ? '🚫 Exclusion' : '⏭️ Skip'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {columnModes[layerName] === 'scoring' && scoringConfigs[layerName] && (
-                  <div className="space-y-4">
-                    {/* Weight & Coverage threshold */}
-                    <div className="flex gap-6 items-end">
-                      <label className="text-sm text-slate-600">
-                        Layer Weight (%):
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">🔌 Connection Layer (Tab 4)</span>
+                      <label className="text-sm text-slate-600 flex items-center">
+                        Weight for Tab 4 (%):
                         <input type="number" min={0} max={100} step={1}
-                          value={scoringConfigs[layerName].weight}
+                          value={scoringConfigs[layerName]?.weight ?? 10}
                           onChange={e => updateWeight(layerName, +e.target.value)}
                           className="ml-2 w-20 border rounded p-1.5 text-sm" />
                       </label>
-                      {scoringConfigs[layerName].type === 'distance_coverage' && (
-                        <label className="text-sm text-slate-600">
-                          Max Coverage for Distance Scoring (%):
-                          <input type="number" min={0} max={100} step={0.5}
-                            value={scoringConfigs[layerName].max_coverage_threshold ?? 5}
-                            onChange={e => updateMaxCoverage(layerName, +e.target.value)}
-                            className="ml-2 w-20 border rounded p-1.5 text-sm" />
-                          <span className="ml-1 text-xs text-slate-400 cursor-help" title="If coverage > this value, distance scoring will be skipped">ⓘ</span>
-                        </label>
-                      )}
                     </div>
-
-                    {/* Level cards — 4 columns like original Streamlit */}
+                  </div>
+                ) : (
+                  <>
+                  <div className="flex items-center justify-between mb-3">
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-2">
-                        {scoringConfigs[layerName].type === 'distance_coverage' ? '📏 Distance Scoring Levels (used when coverage ≤ max)' : '📈 Scoring Levels'}
-                      </p>
-                      <div className="grid grid-cols-4 gap-3">
-                        {scoringConfigs[layerName].levels.map((lv, i) => {
-                          const invalid = lv.min >= lv.max
-                          return (
-                          <div key={i} className={`rounded-lg p-3 border space-y-2 ${invalid ? 'bg-red-50 border-red-300' : 'bg-slate-50'}`}>
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs font-semibold text-slate-600">Level {i + 1}</p>
-                              {invalid && <span className="text-xs text-red-500 font-medium">min ≥ max</span>}
+                      <h4 className="font-medium text-slate-700">{layerName}</h4>
+                      <p className="text-xs text-slate-400">Modes: {Object.keys(group.modes).join(', ')}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {(['scoring', 'exclusion', 'skip'] as const).map(m => (
+                        <button key={m} onClick={() => setMode(layerName, m)}
+                          className={`px-3 py-1 rounded text-xs ${columnModes[layerName] === m
+                            ? m === 'scoring' ? 'bg-blue-600 text-white'
+                            : m === 'exclusion' ? 'bg-red-600 text-white'
+                            : 'bg-slate-400 text-white'
+                          : 'bg-slate-100 text-slate-600'}`}>
+                          {m === 'scoring' ? '📊 Scoring' : m === 'exclusion' ? '🚫 Exclusion' : '⏭️ Skip'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {columnModes[layerName] === 'scoring' && scoringConfigs[layerName] && (
+                    <div className="space-y-4">
+                      {/* Weight & Coverage threshold */}
+                      <div className="flex gap-6 items-end">
+                        <label className="text-sm text-slate-600">
+                          Layer Weight (%):
+                          <input type="number" min={0} max={100} step={1}
+                            value={scoringConfigs[layerName].weight}
+                            onChange={e => updateWeight(layerName, +e.target.value)}
+                            className="ml-2 w-20 border rounded p-1.5 text-sm" />
+                        </label>
+                        {scoringConfigs[layerName].type === 'distance_coverage' && (
+                          <label className="text-sm text-slate-600">
+                            Max Coverage for Distance Scoring (%):
+                            <input type="number" min={0} max={100} step={0.5}
+                              value={scoringConfigs[layerName].max_coverage_threshold ?? 5}
+                              onChange={e => updateMaxCoverage(layerName, +e.target.value)}
+                              className="ml-2 w-20 border rounded p-1.5 text-sm" />
+                            <span className="ml-1 text-xs text-slate-400 cursor-help" title="If coverage > this value, distance scoring will be skipped">ⓘ</span>
+                          </label>
+                        )}
+                      </div>
+
+                      {/* Level cards — 4 columns like original Streamlit */}
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 mb-2">
+                          {scoringConfigs[layerName].type === 'distance_coverage' ? '📏 Distance Scoring Levels (used when coverage ≤ max)' : '📈 Scoring Levels'}
+                        </p>
+                        <div className="grid grid-cols-4 gap-3">
+                          {scoringConfigs[layerName].levels.map((lv, i) => {
+                            const invalid = lv.min >= lv.max
+                            return (
+                            <div key={i} className={`rounded-lg p-3 border space-y-2 ${invalid ? 'bg-red-50 border-red-300' : 'bg-slate-50'}`}>
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-slate-600">Level {i + 1}</p>
+                                {invalid && <span className="text-xs text-red-500 font-medium">min ≥ max</span>}
+                              </div>
+                              <label className="block text-xs text-slate-500">
+                                Max
+                                <input type="number" step="any" value={lv.max}
+                                  onChange={e => updateLevel(layerName, i, 'max', +e.target.value)}
+                                  className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                              </label>
+                              <label className="block text-xs text-slate-500">
+                                Min
+                                <input type="number" step="any" value={lv.min}
+                                  onChange={e => updateLevel(layerName, i, 'min', +e.target.value)}
+                                  className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                              </label>
+                              <label className="block text-xs text-slate-500">
+                                Score
+                                <input type="number" step={1} min={0} max={100} value={lv.score}
+                                  onChange={e => updateLevel(layerName, i, 'score', +e.target.value)}
+                                  className="w-full border rounded p-1.5 text-sm mt-0.5" />
+                              </label>
                             </div>
-                            <label className="block text-xs text-slate-500">
-                              Max
-                              <input type="number" step="any" value={lv.max}
-                                onChange={e => updateLevel(layerName, i, 'max', +e.target.value)}
-                                className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
-                            </label>
-                            <label className="block text-xs text-slate-500">
-                              Min
-                              <input type="number" step="any" value={lv.min}
-                                onChange={e => updateLevel(layerName, i, 'min', +e.target.value)}
-                                className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
-                            </label>
-                            <label className="block text-xs text-slate-500">
-                              Score
-                              <input type="number" step={1} min={0} max={100} value={lv.score}
-                                onChange={e => updateLevel(layerName, i, 'score', +e.target.value)}
-                                className="w-full border rounded p-1.5 text-sm mt-0.5" />
-                            </label>
-                          </div>
-                        )})}
+                          )})}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {columnModes[layerName] === 'exclusion' && constraintConfigs[layerName] && (
-                  <div className="space-y-3">
-                    <p className="text-xs text-red-600">🚫 Cells exceeding the maximum threshold will have final score = 0</p>
-                    {Object.keys(group.modes).length > 1 && (
-                      <label className="text-sm text-slate-600">
-                        Metric:
-                        <select value={constraintConfigs[layerName].mode}
-                          onChange={e => {
-                            const m = e.target.value
-                            setConstraintConfigs(prev => ({
-                              ...prev,
-                              [layerName]: { ...prev[layerName], mode: m, column: group.modes[m] },
-                            }))
-                          }}
-                          className="ml-2 border rounded p-1.5 text-sm">
-                          {Object.keys(group.modes).map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
+                  {columnModes[layerName] === 'exclusion' && constraintConfigs[layerName] && (
+                    <div className="space-y-3">
+                      <p className="text-xs text-red-600">🚫 Cells exceeding the maximum threshold will have final score = 0</p>
+                      {Object.keys(group.modes).length > 1 && (
+                        <label className="text-sm text-slate-600">
+                          Metric:
+                          <select value={constraintConfigs[layerName].mode}
+                            onChange={e => {
+                              const m = e.target.value
+                              setConstraintConfigs(prev => ({
+                                ...prev,
+                                [layerName]: { ...prev[layerName], mode: m, column: group.modes[m] },
+                              }))
+                            }}
+                            className="ml-2 border rounded p-1.5 text-sm">
+                            {Object.keys(group.modes).map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      <label className="flex items-center gap-3 text-sm text-slate-600">
+                        Maximum Allowed Value:
+                        <input type="number" value={constraintConfigs[layerName].threshold}
+                          onChange={e => setConstraintConfigs(prev => ({
+                            ...prev,
+                            [layerName]: { ...prev[layerName], threshold: +e.target.value },
+                          }))}
+                          className="w-24 border rounded p-1.5 text-sm" />
                       </label>
-                    )}
-                    <label className="flex items-center gap-3 text-sm text-slate-600">
-                      Maximum Allowed Value:
-                      <input type="number" value={constraintConfigs[layerName].threshold}
-                        onChange={e => setConstraintConfigs(prev => ({
-                          ...prev,
-                          [layerName]: { ...prev[layerName], threshold: +e.target.value },
-                        }))}
-                        className="w-24 border rounded p-1.5 text-sm" />
-                    </label>
-                    <p className="text-xs text-slate-400">
-                      Constraint: {constraintConfigs[layerName].column} ≤ {constraintConfigs[layerName].threshold}
-                    </p>
-                  </div>
+                      <p className="text-xs text-slate-400">
+                        Constraint: {constraintConfigs[layerName].column} ≤ {constraintConfigs[layerName].threshold}
+                      </p>
+                    </div>
+                  )}
+                  </>
                 )}
               </div>
             ))}
           </div>
 
           {/* Weight summary bar */}
-          {scoringLayerWeights.length > 0 && (
+          {allLayerWeights.length > 0 && (
             <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
               weightOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'
             }`}>

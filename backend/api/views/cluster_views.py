@@ -71,6 +71,10 @@ class RunClusterView(APIView):
         cp_values = request.data.get('cp_values')
         source = request.data.get('source', 'step3')
 
+        grid_size_x = float(session.get('grid_size_x') or 0)
+        grid_size_y = float(session.get('grid_size_y') or 0)
+        default_cell_area = grid_size_x * grid_size_y if (grid_size_x > 0 and grid_size_y > 0) else None
+
         try:
             if source == 'step3':
                 data_df = SessionManager.load_dataframe(request.session_id, 'final_scored_results')
@@ -93,6 +97,7 @@ class RunClusterView(APIView):
             cell_gdf = ClusterEngine.load_and_prepare_data(data_df)
             cell_gdf = ClusterEngine.calculate_cell_capacities(
                 cell_gdf, nominal_capacity_mw, adjust_for_coverage,
+                default_cell_area=default_cell_area,
             )
             cell_gdf, G, components = ClusterEngine.build_adjacency_components(cell_gdf)
             cell_gdf = ClusterEngine.enforce_capacity_limits(
@@ -283,8 +288,13 @@ def _run_cluster_work(session_id, source, nominal_capacity_mw, max_capacity_mw,
     cell_gdf = ClusterEngine.load_and_prepare_data(data_df)
 
     progress_callback(20, 'Calculating cell capacities...')
+    session = SessionManager.get_session(session_id)
+    grid_size_x = float(session.get('grid_size_x') or 0)
+    grid_size_y = float(session.get('grid_size_y') or 0)
+    default_cell_area = grid_size_x * grid_size_y if (grid_size_x > 0 and grid_size_y > 0) else None
     cell_gdf = ClusterEngine.calculate_cell_capacities(
         cell_gdf, nominal_capacity_mw, adjust_for_coverage,
+        default_cell_area=default_cell_area,
     )
 
     progress_callback(35, 'Building adjacency graph...')

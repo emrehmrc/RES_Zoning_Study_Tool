@@ -119,12 +119,12 @@ class ClusterScorer:
 
     # Pretty display names for the source column
     _DISPLAY_NAMES = {
-        "dist_110kv_line":       "Distance to 110kV Line",
-        "dist_220kv_line":       "Distance to 220kV Line",
-        "dist_400kv_line":       "Distance to 400kV Line",
-        "dist_110kv_substation": "Distance to 110kV Substation",
-        "dist_220kv_substation": "Distance to 220kV Substation",
-        "dist_400kv_substation": "Distance to 400kV Substation",
+        "dist_110kv_line":       "110kV Line",
+        "dist_220kv_line":       "220kV Line",
+        "dist_400kv_line":       "400kV Line",
+        "dist_110kv_substation": "110kV Substation",
+        "dist_220kv_substation": "220kV Substation",
+        "dist_400kv_substation": "400kV Substation",
     }
 
     # Output column names for the min-distance columns

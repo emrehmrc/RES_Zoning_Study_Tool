@@ -18,12 +18,12 @@ class WindConfig:
             "Wind"     
         ],
         "Infrastructure - Grid": [
-            "Distance to 110kV Lines",
-            "Distance to 220kV Lines",
-            "Distance to 400kV Lines",
-            "Distance to 110kV Substations",
-            "Distance to 220kV Substations",
-            "Distance to 400kV Substations"
+            "110kV Lines",
+            "220kV Lines",
+            "400kV Lines",
+            "110kV Substations",
+            "220kV Substations",
+            "400kV Substations"
         ],
         "Restrictions & Exclusion": [
             "Agriculture",
@@ -51,13 +51,13 @@ class WindConfig:
         
         
         
-        "Distance to 110kV Lines": ['distance'],
-        "Distance to 220kV Lines": ['distance'],
-        "Distance to 400kV Lines": ['distance'],
+        "110kV Lines": ['distance'],
+        "220kV Lines": ['distance'],
+        "400kV Lines": ['distance'],
 
-        "Distance to 110kV Substations": ['distance'],
-        "Distance to 220kV Substations": ['distance'],
-        "Distance to 400kV Substations": ['distance'],
+        "110kV Substations": ['distance'],
+        "220kV Substations": ['distance'],
+        "400kV Substations": ['distance'],
         
         "Altitude": ['max'],
         "Energy Sources": ['distance'],
