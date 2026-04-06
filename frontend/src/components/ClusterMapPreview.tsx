@@ -20,12 +20,14 @@ function lonLatTo3857(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
-/** Return fill color based on Overall_Score */
+/** Return fill color based on Overall_Score — matches 6-tier table legend */
 function scoreColor(score: number): string {
-  if (score === 0) return '#ef4444'        // red
-  if (score <= 40) return '#fb923c'        // light orange
-  if (score <= 70) return '#facc15'        // light yellow
-  return '#22c55e'                          // green
+  if (score === 0)   return '#94a3b8'   // Score=0  — slate
+  if (score < 20)    return '#ef4444'   // Very Poor (<20) — red
+  if (score < 40)    return '#fb923c'   // Poor (20–40) — orange
+  if (score < 60)    return '#facc15'   // Fair (40–60) — yellow
+  if (score < 80)    return '#86efac'   // Good (60–80) — light green
+  return '#16a34a'                       // Excellent (≥80) — deep green
 }
 
 interface ClusterRow { wkt: string; Overall_Score?: number; [k: string]: any }
@@ -319,10 +321,12 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 text-xs">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#ef4444' }} /> 0</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#fb923c' }} /> 1–40</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#facc15' }} /> 41–70</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#22c55e' }} /> 71–100</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#16a34a' }} /> Excellent (≥80)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#86efac' }} /> Good (60–80)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#facc15' }} /> Fair (40–60)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#fb923c' }} /> Poor (20–40)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#ef4444' }} /> Very Poor (&lt;20)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#94a3b8' }} /> Score = 0</span>
       </div>
 
       {/* Map container */}

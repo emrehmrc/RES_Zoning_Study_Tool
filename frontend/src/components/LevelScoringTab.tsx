@@ -508,35 +508,10 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
       {result && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl p-6 shadow-sm border">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between">
               <h3 className="font-semibold text-emerald-700">✅ {result.message}</h3>
               <button onClick={() => apiDownload('/scoring/download/', 'final_scored_analysis.csv')}
                 className="text-sm px-4 py-1.5 bg-slate-100 rounded-lg hover:bg-slate-200">📥 Download</button>
-            </div>
-
-            {/* Score Distribution */}
-            {result.score_distribution && (
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
-                {[
-                  { key: 'excellent', label: '🌟 Excellent (≥80)', color: 'bg-emerald-50 text-emerald-700' },
-                  { key: 'good', label: '👍 Good (60-80)', color: 'bg-green-50 text-green-700' },
-                  { key: 'fair', label: '📊 Fair (40-60)', color: 'bg-yellow-50 text-yellow-700' },
-                  { key: 'poor', label: '⚠️ Poor (20-40)', color: 'bg-orange-50 text-orange-700' },
-                  { key: 'very_poor', label: '❌ Very Poor (<20)', color: 'bg-red-50 text-red-600' },
-                  { key: 'excluded', label: '🚫 Excluded', color: 'bg-slate-100 text-slate-600' },
-                ].map(item => (
-                  <div key={item.key} className={`${item.color} rounded-lg p-3 text-center`}>
-                    <p className="text-lg font-bold">{result.score_distribution[item.key]?.toLocaleString()}</p>
-                    <p className="text-xs mt-0.5">{item.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-4 text-sm text-slate-600">
-              <span>Total: <strong>{result.total_cells?.toLocaleString()}</strong></span>
-              <span>Excluded: <strong>{result.excluded_cells?.toLocaleString()}</strong></span>
-              <span>Avg Score: <strong>{result.avg_score}</strong></span>
             </div>
           </div>
 

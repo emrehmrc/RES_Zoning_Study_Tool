@@ -14,7 +14,7 @@ function isKvConnectionLayer(name: string): boolean {
 }
 
 function matchRuleToLayer(rule: ClusterScoringRule, layerName: string): boolean {
-  const kvMatch = layerName.match(/\b(110|220|400)\b/)
+  const kvMatch = layerName.match(/(110|220|400)/i)
   if (!kvMatch) return false
   const kv = parseInt(kvMatch[1])
   const isLine = /line/i.test(layerName) && !/substation/i.test(layerName)
@@ -41,7 +41,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
   const [nominalCapacity, setNominalCapacity] = useState(13)
   const [maxCapacity, setMaxCapacity] = useState(250)
   const [adjustCoverage, setAdjustCoverage] = useState(true)
-  const [source, setSource] = useState<'step3' | 'upload'>('step3')
+
 
   const [scoringRules, setScoringRules] = useState<ClusterScoringRule[]>([])
   const [kvWeights, setKvWeights] = useState<Record<string, number>>({})
@@ -52,7 +52,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
-  const [activeRefTab, setActiveRefTab] = useState<'rules' | 'financial' | 'cp'>('rules')
+  const [activeRefTab, setActiveRefTab] = useState<'rules' | 'financial' | 'cp' | 'capacity'>('rules')
   const [focusWkt, setFocusWkt] = useState<string | null>(null)
   const [clusterRows, setClusterRows] = useState<any[]>([])
 
@@ -85,16 +85,6 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
   useEffect(() => {
     if (activeTab === 3) loadRefData()
   }, [activeTab, loadRefData])
-
-  async function uploadCSV(file: File) {
-    setError('')
-    try {
-      const fd = new FormData()
-      fd.append('csv_file', file)
-      await apiPost('/cluster/upload-csv/', fd)
-      setSource('upload')
-    } catch (e: any) { setError(e.message) }
-  }
 
   async function saveRules() {
     try {
@@ -149,7 +139,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
           nominal_capacity_mw: nominalCapacity,
           max_capacity_mw: maxCapacity,
           adjust_for_coverage: adjustCoverage,
-          source,
+          source: 'step3',
           scoring_rules: filteredRules.map(rule => ({ ...rule, weight_frac: getRuleWeight(rule) })),
           financial_constants: financialConstants,
           cp_values: cpValues,
@@ -177,58 +167,18 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
       {(!status || !status.has_final_scored) ? (
         <div className="bg-amber-50 text-amber-700 p-6 rounded-xl border border-amber-200 text-center">
           <p className="font-medium">No scoring data available.</p>
-          <p className="text-sm mt-1">Complete Step 3 (Scoring) first, or upload a CSV with scored data.</p>
+          <p className="text-sm mt-1">Complete Step 3 (Scoring) first to generate scored data.</p>
         </div>
       ) : (<>
 
-      {/* Data Source & Capacity Params */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Data Source */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border space-y-4">
-          <h3 className="font-semibold text-slate-700">📂 Data Source</h3>
-          <div className="flex gap-3">
-            <button onClick={() => setSource('step3')}
-              className={`px-4 py-1.5 rounded text-sm ${source === 'step3' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
-            >Step 3 Results</button>
-            <label className={`cursor-pointer px-4 py-1.5 rounded text-sm ${source === 'upload' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              📤 Upload CSV
-              <input type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) uploadCSV(e.target.files[0]) }} />
-            </label>
-          </div>
-          {source === 'upload' && (
-            <p className="text-xs text-emerald-600">✅ CSV uploaded — will use uploaded data.</p>
-          )}
-        </div>
-
-        {/* Right: Capacity Constraints */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border space-y-4">
-          <h3 className="font-semibold text-slate-700">⚡ Capacity Constraints</h3>
-          <label className="block text-sm text-slate-600">
-            Nominal Capacity (MW)
-            <input type="number" value={nominalCapacity} onChange={e => setNominalCapacity(+e.target.value)}
-              className="mt-1 w-full border rounded-lg p-2.5" step={0.5} min={0.1} />
-          </label>
-          <label className="block text-sm text-slate-600">
-            Max Cluster Capacity (MW)
-            <input type="number" value={maxCapacity} onChange={e => setMaxCapacity(+e.target.value)}
-              className="mt-1 w-full border rounded-lg p-2.5" step={10} min={10} />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={adjustCoverage}
-              onChange={e => setAdjustCoverage(e.target.checked)}
-              className="rounded" />
-            Adjust capacity for coverage
-          </label>
-        </div>
-      </div>
-
-      {/* Reference Data Tabs */}
+      {/* Main Config Tabs */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="flex border-b">
           {[
-            { key: 'rules', label: '📏 Connection Rules' },
-            { key: 'financial', label: '💰 Financial Constants' },
-            { key: 'cp', label: '⚙️ Technical Constants' },
+            { key: 'rules',      label: '📏 Connection Rules' },
+            { key: 'financial',  label: '💰 Financial Constants' },
+            { key: 'cp',         label: '⚙️ Technical Constants' },
+            { key: 'capacity',   label: '⚡ Capacity Constraints' },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveRefTab(tab.key as any)}
               className={`px-5 py-3 text-sm font-medium transition ${activeRefTab === tab.key ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}>
@@ -237,7 +187,28 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
           ))}
         </div>
 
-        <div className="p-5 max-h-96 overflow-auto">
+        <div className="p-5 max-h-[480px] overflow-auto">
+          {/* Capacity Constraints */}
+          {activeRefTab === 'capacity' && (
+            <div className="space-y-4 max-w-sm">
+              <label className="block text-sm text-slate-600">
+                Nominal Capacity (MW)
+                <input type="number" value={nominalCapacity} onChange={e => setNominalCapacity(+e.target.value)}
+                  className="mt-1 w-full border rounded-lg p-2.5" step={0.5} min={0.1} />
+              </label>
+              <label className="block text-sm text-slate-600">
+                Max Cluster Capacity (MW)
+                <input type="number" value={maxCapacity} onChange={e => setMaxCapacity(+e.target.value)}
+                  className="mt-1 w-full border rounded-lg p-2.5" step={10} min={10} />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={adjustCoverage}
+                  onChange={e => setAdjustCoverage(e.target.checked)}
+                  className="rounded" />
+                Adjust capacity for coverage
+              </label>
+            </div>
+          )}
           {/* Scoring Rules */}
           {activeRefTab === 'rules' && (
             <div className="space-y-3">
@@ -249,31 +220,37 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full text-xs">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left">Criteria</th>
-                        <th className="px-2 py-1.5 text-left">Tab 3 Weight</th>
-                        <th className="px-2 py-1.5 text-left">kV</th>
-                        <th className="px-2 py-1.5 text-left">Kind</th>
-                        <th className="px-2 py-1.5 text-left">L1 Min</th>
-                        <th className="px-2 py-1.5 text-left">L1 Max</th>
-                        <th className="px-2 py-1.5 text-left">L1 Score</th>
-                        <th className="px-2 py-1.5 text-left">L2 Min</th>
-                        <th className="px-2 py-1.5 text-left">L2 Max</th>
-                        <th className="px-2 py-1.5 text-left">L2 Score</th>
+                  <table className="min-w-full text-xs border-separate border-spacing-0">
+                    <thead>
+                      <tr className="bg-slate-100">
+                        <th className="px-2 py-1.5 text-left border-b" rowSpan={2}>Criteria</th>
+                        <th className="px-2 py-1.5 text-left border-b" rowSpan={2}>Cap (MW)</th>
+                        <th className="px-2 py-1.5 text-center border-b border-l bg-blue-50 text-blue-700" colSpan={3}>Level 1</th>
+                        <th className="px-2 py-1.5 text-center border-b border-l bg-green-50 text-green-700" colSpan={3}>Level 2</th>
+                        <th className="px-2 py-1.5 text-center border-b border-l bg-yellow-50 text-yellow-700" colSpan={3}>Level 3</th>
+                        <th className="px-2 py-1.5 text-center border-b border-l bg-orange-50 text-orange-700" colSpan={3}>Level 4</th>
+                      </tr>
+                      <tr className="bg-slate-50">
+                        <th className="px-2 py-1 text-left border-b border-l">Min</th>
+                        <th className="px-2 py-1 text-left border-b">Max</th>
+                        <th className="px-2 py-1 text-left border-b">Score</th>
+                        <th className="px-2 py-1 text-left border-b border-l">Min</th>
+                        <th className="px-2 py-1 text-left border-b">Max</th>
+                        <th className="px-2 py-1 text-left border-b">Score</th>
+                        <th className="px-2 py-1 text-left border-b border-l">Min</th>
+                        <th className="px-2 py-1 text-left border-b">Max</th>
+                        <th className="px-2 py-1 text-left border-b">Score</th>
+                        <th className="px-2 py-1 text-left border-b border-l">Min</th>
+                        <th className="px-2 py-1 text-left border-b">Max</th>
+                        <th className="px-2 py-1 text-left border-b">Score</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {filteredRules.map((r, i) => (
                         <tr key={i}>
-                          <td className="px-2 py-1">{r.criteria_norm}</td>
-                          <td className="px-2 py-1">
-                            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{(getRuleWeight(r) * 100).toFixed(0)}%</span>
-                          </td>
-                          <td className="px-2 py-1">{r.kv}</td>
-                          <td className="px-2 py-1">{r.kind}</td>
-                          <td className="px-2 py-1">
+                          <td className="px-2 py-1 whitespace-nowrap">{r.criteria_norm}<br/><span className="text-slate-400">{r.kind} · {r.kv}kV</span></td>
+                          <td className="px-2 py-1 text-slate-500 whitespace-nowrap">{r.cap_min}–{r.cap_max}</td>
+                          <td className="px-2 py-1 border-l">
                             <input type="number" value={r.L1_min} onChange={e => updateRule(i, 'L1_min', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
                           </td>
                           <td className="px-2 py-1">
@@ -282,7 +259,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                           <td className="px-2 py-1">
                             <input type="number" value={r.L1_score} onChange={e => updateRule(i, 'L1_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
                           </td>
-                          <td className="px-2 py-1">
+                          <td className="px-2 py-1 border-l">
                             <input type="number" value={r.L2_min} onChange={e => updateRule(i, 'L2_min', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
                           </td>
                           <td className="px-2 py-1">
@@ -290,6 +267,24 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                           </td>
                           <td className="px-2 py-1">
                             <input type="number" value={r.L2_score} onChange={e => updateRule(i, 'L2_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1 border-l">
+                            <input type="number" value={r.L3_min} onChange={e => updateRule(i, 'L3_min', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" value={r.L3_max} onChange={e => updateRule(i, 'L3_max', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" value={r.L3_score} onChange={e => updateRule(i, 'L3_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1 border-l">
+                            <input type="number" value={r.L4_min} onChange={e => updateRule(i, 'L4_min', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" value={r.L4_max} onChange={e => updateRule(i, 'L4_max', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" value={r.L4_score} onChange={e => updateRule(i, 'L4_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
                           </td>
                         </tr>
                       ))}
@@ -454,6 +449,36 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
           {/* Data Table */}
           {clusterRows.length > 0 && result.columns && (
             <div className="bg-white rounded-xl p-6 shadow-sm border">
+              {/* Score Distribution */}
+              {(() => {
+                const scores = clusterRows.map(r => r['Overall_Score'] ?? r['overall_score']).filter(v => v != null)
+                if (scores.length === 0) return null
+                const dist = {
+                  excellent: scores.filter((s: number) => s >= 80).length,
+                  good:      scores.filter((s: number) => s >= 60 && s < 80).length,
+                  fair:      scores.filter((s: number) => s >= 40 && s < 60).length,
+                  poor:      scores.filter((s: number) => s >= 20 && s < 40).length,
+                  very_poor: scores.filter((s: number) => s > 0  && s < 20).length,
+                  excluded:  scores.filter((s: number) => s === 0).length,
+                }
+                return (
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+                    {[
+                      { key: 'excellent', label: '🌟 Excellent (≥80)',  color: 'bg-green-700   text-white'         },
+                      { key: 'good',      label: '👍 Good (60–80)',     color: 'bg-green-200   text-green-900'     },
+                      { key: 'fair',      label: '📊 Fair (40–60)',     color: 'bg-yellow-100  text-yellow-800'    },
+                      { key: 'poor',      label: '⚠️ Poor (20–40)',     color: 'bg-orange-100  text-orange-700'    },
+                      { key: 'very_poor', label: '❌ Very Poor (<20)',  color: 'bg-red-100     text-red-600'       },
+                      { key: 'excluded',  label: '🚫 Score = 0',       color: 'bg-slate-200   text-slate-600'     },
+                    ].map(item => (
+                      <div key={item.key} className={`${item.color} rounded-lg p-3 text-center`}>
+                        <p className="text-lg font-bold">{(dist as any)[item.key].toLocaleString()}</p>
+                        <p className="text-xs mt-0.5">{item.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
               <div className="flex justify-end mb-3">
                 <button onClick={() => apiDownload('/cluster/download/', 'clustered_scored_results.csv')}
                   className="text-sm px-4 py-1.5 bg-slate-100 rounded-lg hover:bg-slate-200 border">📥 Download CSV</button>
@@ -461,6 +486,7 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
               <AnalysisResultsTable
                 columns={result.columns}
                 data={clusterRows}
+                currencyColumns={['LINE CAPEX', 'line expropriation', 'CAPEX', 'substation', 'land cost', 'TRANSPORT NETWORKS', 'TOTAL CAPEX']}
                 onRowClick={(row) => { if (row.wkt) setFocusWkt(row.wkt) }}
               />
             </div>

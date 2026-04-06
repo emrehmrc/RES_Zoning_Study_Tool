@@ -18,9 +18,11 @@ interface Props {
   columns: string[]
   data: any[]
   onRowClick?: (rowData: any) => void
+  currencyColumns?: string[]
 }
 
-export default function AnalysisResultsTable({ columns: colNames, data, onRowClick }: Props) {
+export default function AnalysisResultsTable({ columns: colNames, data, onRowClick, currencyColumns }: Props) {
+  const currencySet = useMemo(() => new Set(currencyColumns ?? []), [currencyColumns])
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [pageIndex, setPageIndex] = useState(0)
@@ -28,19 +30,21 @@ export default function AnalysisResultsTable({ columns: colNames, data, onRowCli
 
   const columns = useMemo<ColumnDef<any, any>[]>(() => {
     const helper = createColumnHelper<any>()
-    return colNames.map(col =>
-      helper.accessor(col, {
-        header: col,
+    return colNames.map(col => {
+      const isCurrency = currencySet.has(col)
+      return helper.accessor(col, {
+        header: isCurrency ? `${col} ($)` : col,
         cell: info => {
           const v = info.getValue()
+          if (isCurrency && typeof v === 'number') return Math.round(v).toLocaleString('en-US')
           if (typeof v === 'number') return Math.round(v * 1000) / 1000
           if (typeof v === 'string' && v.length > 60) return v.slice(0, 60) + '…'
           return v
         },
         filterFn: 'includesString',
       })
-    )
-  }, [colNames])
+    })
+  }, [colNames, currencySet])
 
   const table = useReactTable({
     data,

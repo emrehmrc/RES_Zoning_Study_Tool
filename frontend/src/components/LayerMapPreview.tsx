@@ -85,6 +85,10 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
 
       // 2) Create map if not exists
       if (!mapRef.current) {
+        // Discard stale overlay refs from a previous map instance
+        rasterOverlaysRef.current.clear()
+        setVisibleLayers(new Set())
+
         const map = leaflet.map(containerRef.current, {
           center: [48, 16],
           zoom: 4,
@@ -290,10 +294,10 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
     }
 
     if (visibleLayers.has(path)) {
-      mapRef.current?.removeLayer(overlay)
+      if (mapRef.current?.hasLayer(overlay)) mapRef.current.removeLayer(overlay)
       setVisibleLayers(prev => { const n = new Set(prev); n.delete(path); return n })
     } else {
-      overlay.addTo(mapRef.current)
+      if (mapRef.current) overlay.addTo(mapRef.current)
       setVisibleLayers(prev => new Set(prev).add(path))
     }
   }, [visibleLayers, loadRasterPreview])
@@ -301,12 +305,22 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
   // Clean up raster overlays for layers that have been removed
   useEffect(() => {
     const currentPaths = new Set(layers.map(l => l.path))
-    rasterOverlaysRef.current.forEach((overlay, path) => {
-      if (!currentPaths.has(path)) {
-        mapRef.current?.removeLayer(overlay)
+    const toRemove: string[] = []
+    rasterOverlaysRef.current.forEach((_, path) => {
+      if (!currentPaths.has(path)) toRemove.push(path)
+    })
+    if (toRemove.length === 0) return
+    toRemove.forEach(path => {
+      const overlay = rasterOverlaysRef.current.get(path)
+      if (overlay) {
+        if (mapRef.current?.hasLayer(overlay)) mapRef.current.removeLayer(overlay)
         rasterOverlaysRef.current.delete(path)
-        setVisibleLayers(prev => { const n = new Set(prev); n.delete(path); return n })
       }
+    })
+    setVisibleLayers(prev => {
+      const n = new Set(prev)
+      toRemove.forEach(p => n.delete(p))
+      return n
     })
   }, [layers])
 

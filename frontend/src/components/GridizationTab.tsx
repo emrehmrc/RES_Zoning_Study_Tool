@@ -53,7 +53,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
   const GRID_MAX = 10000
   const GRID_STEP = 100
   const TURB_MIN = 20
-  const TURB_MAX = 500
+  const TURB_MAX = config.project_type === 'OnShore' ? 200 : 500
   const TURB_STEP = 10
 
   const gridXError = gridSizeX < GRID_MIN || gridSizeX > GRID_MAX
