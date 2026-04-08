@@ -64,6 +64,10 @@ class FastGridEngine:
         
         # Prepare boundary mask once
         mask_geom = self.boundary_gdf.geometry.unary_union
+        # Simplified mask for fast intersects/within checks (100 m tolerance in EPSG:3857).
+        # Complex EEZ polygons can have thousands of vertices; simplification cuts spatial
+        # test time dramatically with negligible effect on which cells are included.
+        mask_geom_simple = mask_geom.simplify(100)
         
         # 2. Chunked Processing – process `chunk_rows` Y-values at a time
         chunk_results = []
@@ -96,16 +100,16 @@ class FastGridEngine:
             }, crs="EPSG:3857")
             
             # --- Intersection clipping (like QGIS Intersection) ---
-            # 1) Keep only cells that intersect the boundary
-            is_intersecting = chunk_gdf.geometry.intersects(mask_geom)
+            # 1) Keep only cells that intersect the boundary (fast check on simplified mask)
+            is_intersecting = chunk_gdf.geometry.intersects(mask_geom_simple)
             candidates = chunk_gdf[is_intersecting].copy()
             
             if len(candidates) > 0:
-                # 2) Cells fully within boundary → keep as-is (fast path)
-                is_within = candidates.geometry.within(mask_geom)
+                # 2) Cells fully within boundary → keep as-is (fast path, simplified mask)
+                is_within = candidates.geometry.within(mask_geom_simple)
                 full_cells = candidates[is_within].copy()
                 
-                # 3) Cells partially overlapping → clip to boundary
+                # 3) Cells partially overlapping → clip to exact boundary geometry
                 edge_cells = candidates[~is_within].copy()
                 
                 if len(edge_cells) > 0:

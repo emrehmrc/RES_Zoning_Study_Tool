@@ -172,7 +172,7 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
     })()
 
     return () => { cancelled = true; controller.abort() }
-  }, [country, zone, albRegion, albDistrict])
+  }, [country, zone, albRegion, albDistrict, mapReady])
 
   // Toggle boundary visibility
   useEffect(() => {

@@ -223,7 +223,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
 
             {boundaryMethod === 'country' && (
               <div className="space-y-3">
-                <select value={selectedCountry} onChange={e => { setSelectedCountry(e.target.value); setSelectedAlbRegion(''); setSelectedAlbDistrict('') }}
+                <select value={selectedCountry} onChange={e => { setSelectedCountry(e.target.value); setSelectedAlbRegion(''); setSelectedAlbDistrict(''); setCommittedGridX(0); setCommittedGridY(0); setGridSource('none') }}
                   className="w-full border rounded-lg p-2.5 text-sm">
                   <option value="">-- Select Country --</option>
                   {countries.map(c => <option key={c} value={c}>{c}</option>)}
@@ -259,7 +259,7 @@ export default function GridizationTab({ config, onComplete }: Props) {
             )}
 
             {boundaryMethod === 'eez' && (
-              <select value={selectedZone} onChange={e => setSelectedZone(e.target.value)}
+              <select value={selectedZone} onChange={e => { setSelectedZone(e.target.value); setCommittedGridX(0); setCommittedGridY(0); setGridSource('none') }}
                 className="w-full border rounded-lg p-2.5 text-sm">
                 <option value="">-- Select EEZ Zone --</option>
                 {eezZones.map(z => <option key={z} value={z}>{z}</option>)}

@@ -20,6 +20,7 @@ class OffShoreConfig:
         ],
     
         "Infrastructure & Logistics": [
+            "Airport (km)",
             "Distance to Ports (km)",
             "Subsea Cables, pipe lines (km)",
             "220kV Lines",
@@ -39,12 +40,14 @@ class OffShoreConfig:
             "Sea bed (only for bottom fixed)",
             "Bathymetry (for bottom fixed) (m)",
             "Bathymetry (for floating) (m)",
-            "Slope (%)"
+            "Slope (%) - bottom fixed",
+            "Slope (%) - floating"
         ]
     }
 
     PREDEFINED_LAYER_MODES = {
         
+        "Airport (km)": ['distance'],
         "220kV Lines": ['distance'],
         "400kV Lines": ['distance'],
         "220kV Substations": ['distance'],
@@ -62,7 +65,8 @@ class OffShoreConfig:
         "Touristic Places (km)": ['distance'],
         "Wind Speed (m/s) - bottom fixed": ['max', 'min', 'mean'],
         "Wind Speed (m/s) - floating": ['max', 'min', 'mean'],
-        "Slope (%)": ['max', 'mean', 'min']
+        "Slope (%) - bottom fixed": ['max', 'min', 'mean'],
+        "Slope (%) - floating": ['max', 'min', 'mean'],
     }
 
     ALL_LAYER_NAMES = [
@@ -98,6 +102,16 @@ class OffShoreConfig:
                 {'max': 80,    'min': 60, 'score': 80},
                 {'max': 60,    'min': 40, 'score': 50},
                 {'max': 40,    'min': 0,  'score': 20},
+            ]
+        },
+        # ── Airport ────────────────────────────────────────────────────────
+        'Airport (km)': {
+            'weight': 1,
+            'levels': [
+                {'max': 99999, 'min': 30, 'score': 100},
+                {'max': 30,    'min': 20, 'score': 70},
+                {'max': 20,    'min': 10, 'score': 40},
+                {'max': 10,    'min': 0,  'score': 0},
             ]
         },
         # ── kV connection layers (Tab 4 weight defaults) ──────────────────
@@ -178,13 +192,22 @@ class OffShoreConfig:
                 {'max': 99999, 'min': 200, 'score': 0},
             ]
         },
-        'Slope (%)': {
+        'Slope (%) - bottom fixed': {
             'weight': 10,
             'levels': [
                 {'max': 2,    'min': 0,  'score': 100},
                 {'max': 5,    'min': 2,  'score': 70},
                 {'max': 10,   'min': 5,  'score': 40},
                 {'max': 9999, 'min': 10, 'score': 0},
+            ]
+        },
+        'Slope (%) - floating': {
+            'weight': 5,
+            'levels': [
+                {'max': 5,    'min': 0,  'score': 100},
+                {'max': 10,   'min': 5,  'score': 70},
+                {'max': 15,   'min': 10, 'score': 40},
+                {'max': 9999, 'min': 15, 'score': 0},
             ]
         },
         'Subsea Cables (km)': {
