@@ -93,6 +93,13 @@ class RunScoringView(APIView):
                 elif cfg['type'] == 'single_mode':
                     column = cfg['column']
                     levels = cfg['levels']
+                    normalize = cfg.get('normalize_by_max', False)
+
+                    col_values = results_df[column].copy() if column in results_df.columns else pd.Series(0.0, index=results_df.index)
+                    if normalize:
+                        col_max = col_values.max()
+                        if col_max and col_max > 0 and col_max > 100:
+                            col_values = (col_values / col_max) * 100
 
                     def _level_score(val, _levels=levels):
                         if pd.notna(val):
@@ -101,7 +108,7 @@ class RunScoringView(APIView):
                                     return lv['score']
                         return 0
 
-                    layer_scores = results_df[column].apply(_level_score)
+                    layer_scores = col_values.apply(_level_score)
                     results_df[f'{layer_name}_SCORE'] = layer_scores
                     total_weighted_score += layer_scores * cfg['weight']
 

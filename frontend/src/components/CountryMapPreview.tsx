@@ -53,7 +53,6 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
   const uploadedCellsLayerRef = useRef<any>(null)
   const uploadBoundaryLayerRef = useRef<any>(null)
   const [hoverCellId, setHoverCellId] = useState<number | null>(null)
-  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null)
   const cellIndexRef = useRef<Map<string, number>>(new Map())
 
   // Load boundary from /grid-info/ when in upload mode (no country/zone available)
@@ -273,27 +272,20 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
       })
       .catch(() => {})
     const map = mapRef.current
-    const handleMove = (e: any) => {
+    const handleClick = (e: any) => {
       if (cellIndexRef.current.size === 0) return
       const [mx, my] = lonLatTo3857(e.latlng.lng, e.latlng.lat)
       const col = Math.floor((mx - originX) / gridSizeX)
       const row = Math.floor((my - originY) / gridSizeY)
       const id = cellIndexRef.current.get(`${col}_${row}`)
-      if (id !== undefined) {
-        setHoverCellId(id)
-        setHoverPos({ x: e.containerPoint.x, y: e.containerPoint.y })
-      } else {
-        setHoverCellId(null); setHoverPos(null)
-      }
+      if (id !== undefined) setHoverCellId(id)
+      else setHoverCellId(null)
     }
-    const handleOut = () => { setHoverCellId(null); setHoverPos(null) }
-    map.on('mousemove', handleMove)
-    map.on('mouseout', handleOut)
+    map.on('click', handleClick)
     return () => {
       cancelled = true
-      map.off('mousemove', handleMove)
-      map.off('mouseout', handleOut)
-      setHoverCellId(null); setHoverPos(null)
+      map.off('click', handleClick)
+      setHoverCellId(null)
     }
   }, [mapReady, gridSizeX, gridSizeY, gridOriginX, gridOriginY, loadedBounds])
 
@@ -445,12 +437,9 @@ export default function CountryMapPreview({ country, zone, albRegion, albDistric
           <div className="absolute top-2 left-2 z-[1000] text-xs text-red-600 bg-white/90 px-2 py-1 rounded">{error}</div>
         )}
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
-        {hoverCellId !== null && hoverPos !== null && (
-          <div
-            className="pointer-events-none absolute z-[2000] bg-slate-800/90 text-white text-xs font-mono px-2 py-1 rounded shadow-lg whitespace-nowrap"
-            style={{ left: hoverPos.x + 14, top: hoverPos.y - 32 }}
-          >
-            Cell ID: {hoverCellId}
+        {hoverCellId !== null && (
+          <div className="pointer-events-none absolute z-[2000] bottom-2 left-2 bg-slate-900/90 text-white text-xs font-mono px-3 py-2 rounded-lg shadow-xl whitespace-nowrap border border-slate-600">
+            Cell ID: <span className="text-emerald-300 font-semibold">{hoverCellId}</span>
           </div>
         )}
       </div>

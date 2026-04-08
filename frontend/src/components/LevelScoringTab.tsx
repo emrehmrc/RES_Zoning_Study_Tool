@@ -22,6 +22,7 @@ interface LayerScoringConfig {
   weight: number
   levels: { min: number; max: number; score: number }[]
   distance_levels?: { min: number; max: number; score: number }[]
+  normalize_by_max?: boolean
 }
 
 interface LayerConstraintConfig {
@@ -113,6 +114,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
             column: group.modes[firstMode],
             weight: config.scoring_configs[layerName]?.weight ?? 10,
             levels: defaultLevels.map((l: ScoringLevel) => ({ ...l })),
+            normalize_by_max: config.scoring_configs[layerName]?.normalize_by_max ?? false,
           }
         }
       }

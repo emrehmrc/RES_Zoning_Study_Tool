@@ -60,9 +60,18 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
   const focusHighlightRef = useRef<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [hoverCellId, setHoverCellId] = useState<number | null>(null)
-  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null)
   const cellIndexRef = useRef<Map<string, number>>(new Map())
+  // Ref synced to visibleLayers so Leaflet click handlers (closures) always read the current set
+  const visibleLayersRef = useRef<Set<string>>(new Set())
+  // Click info panel: either a cell ID or pixel band values
+  const [clickInfo, setClickInfo] = useState<
+    | { type: 'cell'; id: number }
+    | { type: 'pixel'; bands: Record<string, number | null> }
+    | null
+  >(null)
+
+  // Keep visibleLayersRef in sync so Leaflet click handlers (closures) see current value
+  useEffect(() => { visibleLayersRef.current = visibleLayers }, [visibleLayers])
 
   // Set wait cursor while any raster layer preview is loading
   useEffect(() => {
@@ -263,27 +272,32 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
       })
       .catch(() => {})
     const map = mapRef.current
-    const handleMove = (e: any) => {
-      if (cellIndexRef.current.size === 0) return
-      const [mx, my] = lonLatTo3857(e.latlng.lng, e.latlng.lat)
-      const col = Math.floor((mx - originX) / gx)
-      const row = Math.floor((my - originY) / gy)
-      const id = cellIndexRef.current.get(`${col}_${row}`)
-      if (id !== undefined) {
-        setHoverCellId(id)
-        setHoverPos({ x: e.containerPoint.x, y: e.containerPoint.y })
+    // Single click: if exactly 1 raster visible → show pixel bands; otherwise show cell ID
+    const handleClick = async (e: any) => {
+      const visible = visibleLayersRef.current
+      if (visible.size === 1) {
+        const path = [...visible][0]
+        try {
+          const r = await apiGet<{ bands: Record<string, number | null> }>(
+            `/raster-pixel/?path=${encodeURIComponent(path)}&lat=${e.latlng.lat}&lng=${e.latlng.lng}`
+          )
+          setClickInfo({ type: 'pixel', bands: r.bands })
+        } catch { /* ignore */ }
       } else {
-        setHoverCellId(null); setHoverPos(null)
+        // 0 or multiple visible layers → show cell ID
+        const [mx, my] = lonLatTo3857(e.latlng.lng, e.latlng.lat)
+        const col = Math.floor((mx - originX) / gx)
+        const row = Math.floor((my - originY) / gy)
+        const id = cellIndexRef.current.get(`${col}_${row}`)
+        if (id !== undefined) setClickInfo({ type: 'cell', id })
+        else setClickInfo(null)
       }
     }
-    const handleOut = () => { setHoverCellId(null); setHoverPos(null) }
-    map.on('mousemove', handleMove)
-    map.on('mouseout', handleOut)
+    map.on('click', handleClick)
     return () => {
       cancelled = true
-      map.off('mousemove', handleMove)
-      map.off('mouseout', handleOut)
-      setHoverCellId(null); setHoverPos(null)
+      map.off('click', handleClick)
+      setClickInfo(null)
     }
   }, [gridInfo])
 
@@ -336,8 +350,10 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
 
   // Toggle raster layer visibility
   const toggleLayerVisibility = useCallback((path: string, name: string) => {
-    const overlay = rasterOverlaysRef.current.get(path)
+    // Always mark this as the active layer immediately, before any async work
+    setClickInfo(null)
 
+    const overlay = rasterOverlaysRef.current.get(path)
     if (!overlay) {
       loadRasterPreview(path, name)
       return
@@ -449,7 +465,7 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
         </label>
         {layers.map((l) => (
           <label key={l.path} className="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" checked={visibleLayers.has(l.path)} onChange={() => toggleLayerVisibility(l.path, l.prefix)} className="accent-emerald-600" />
+          <input type="checkbox" checked={visibleLayers.has(l.path)} onChange={() => toggleLayerVisibility(l.path, l.prefix)} className="accent-emerald-600" />
             <span className="text-slate-600">
               {l.prefix}
               {loadingLayers.has(l.path) && <span className="ml-1 text-xs text-amber-500">(loading...)</span>}
@@ -480,12 +496,21 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
           <div className="absolute top-2 left-2 z-[1000] text-xs text-red-600 bg-white/90 px-2 py-1 rounded">{error}</div>
         )}
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
-        {hoverCellId !== null && hoverPos !== null && (
-          <div
-            className="pointer-events-none absolute z-[2000] bg-slate-800/90 text-white text-xs font-mono px-2 py-1 rounded shadow-lg whitespace-nowrap"
-            style={{ left: hoverPos.x + 14, top: hoverPos.y - 32 }}
-          >
-            Cell ID: {hoverCellId}
+        {/* Click info panel — top-right corner of the map */}
+        {clickInfo !== null && (
+          <div className="pointer-events-none absolute z-[2001] bottom-2 left-2 bg-slate-900/90 text-white text-xs font-mono px-3 py-2 rounded-lg shadow-xl whitespace-nowrap border border-slate-600">
+            {clickInfo.type === 'cell' ? (
+              <span>Cell ID: <span className="text-emerald-300 font-semibold">{clickInfo.id}</span></span>
+            ) : (
+              <>
+                {Object.entries(clickInfo.bands).map(([name, val]) => (
+                  <div key={name}>
+                    <span className="text-slate-300">{name}:</span>{' '}
+                    <span className="text-emerald-300 font-semibold">{val === null ? 'nodata' : val}</span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
       </div>

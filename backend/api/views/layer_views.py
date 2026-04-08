@@ -427,6 +427,32 @@ def _run_analysis_work(session_id, layer_configs, *, progress_callback):
     )
 
     progress_callback(90, 'Saving results...')
+
+    # Normalize columns whose layer has normalize_by_max=True in the project config.
+    # For Solar Irradiation: divide _min/_max/_mean by the global max of the _max column
+    # so that all values become 0–100 percentages before scoring.
+    try:
+        session_state = SessionManager.get_session(session_id)
+        pt = session_state.get('project_type', 'Solar')
+        from api.views.project_views import get_config_class  # late import to avoid circulars
+        cfg_cls = get_config_class(pt)
+        scoring_cfgs = getattr(cfg_cls, 'SCORING_CONFIGS', {})
+        for layer_cfg in layer_configs:
+            prefix = layer_cfg['prefix']
+            if scoring_cfgs.get(prefix, {}).get('normalize_by_max', False):
+                # Find the _max column to get the global reference maximum
+                max_col = f'{prefix}_max'
+                if max_col in result.columns:
+                    global_max = result[max_col].max()
+                    if global_max and global_max > 0:
+                        for suffix in ('_min', '_max', '_mean'):
+                            col = f'{prefix}{suffix}'
+                            if col in result.columns:
+                                result[col] = (result[col] / global_max * 100).round(3)
+    except Exception as _ne:
+        import logging as _log
+        _log.warning(f'normalize_by_max post-processing skipped: {_ne}')
+
     SessionManager.save_dataframe(session_id, 'scoring_results', result)
     SessionManager.update_session(session_id, scoring_complete=True)
 
@@ -716,6 +742,64 @@ class RasterPreviewView(APIView):
                 'height': out_h,
                 'value_range': [vmin, vmax],
             })
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class RasterPixelView(APIView):
+    """Return the band value(s) at a geographic point (EPSG:4326 lat/lng).
+
+    Query params:
+        path  – absolute path to the .tif file
+        lat   – latitude  (EPSG:4326)
+        lng   – longitude (EPSG:4326)
+    """
+
+    def get(self, request):
+        import rasterio
+        from pyproj import Transformer
+
+        path = request.query_params.get('path', '')
+        lat  = request.query_params.get('lat', '')
+        lng  = request.query_params.get('lng', '')
+        if not path or not lat or not lng:
+            return Response({'error': 'path, lat and lng are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        norm_path = os.path.normpath(path)
+        if not os.path.isfile(norm_path):
+            return Response({'error': 'File not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+        except ValueError:
+            return Response({'error': 'lat/lng must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with rasterio.open(norm_path) as src:
+                # Raster is EPSG:3857; convert incoming 4326 coords
+                t = Transformer.from_crs('EPSG:4326', src.crs.to_epsg() or 'EPSG:3857', always_xy=True)
+                x, y = t.transform(lng_f, lat_f)
+
+                # sample() expects [(x, y)] and returns an array of shape (bands, n_points)
+                vals = list(src.sample([(x, y)]))[0]  # shape: (n_bands,)
+
+                nodata = src.nodata
+                band_names = (
+                    [src.descriptions[i] or f'Band {i+1}' for i in range(src.count)]
+                )
+                result = {}
+                for i, (name, v) in enumerate(zip(band_names, vals)):
+                    raw = float(v)
+                    if nodata is not None and raw == nodata:
+                        result[name] = None
+                    elif not (raw == raw):   # NaN check
+                        result[name] = None
+                    else:
+                        result[name] = round(raw, 4)
+
+                return Response({'bands': result, 'count': src.count})
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

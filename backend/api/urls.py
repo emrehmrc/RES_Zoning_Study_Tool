@@ -12,7 +12,7 @@ from api.views.layer_views import (
     RasterFilesView, UploadRasterFileView, RunAnalysisView, AnalysisResultsView, AnalysisDownloadView,
     BrowseDirectoryView, BrowseDefaultPathView, BrowseSaveLastDirView,
     NativeFileDialogView, RunAnalysisAsyncView, TaskProgressView,
-    GridInfoView, RasterPreviewView, GridCellIndexView,
+    GridInfoView, RasterPreviewView, GridCellIndexView, RasterPixelView,
 )
 from api.views.scoring_views import (
     RunScoringView, ScoringResultsView, ScoringDownloadView, ImportScoringCSVView,
@@ -60,6 +60,7 @@ urlpatterns = [
     path('grid-info/', GridInfoView.as_view()),
     path('grid/cell-index/', GridCellIndexView.as_view()),
     path('raster-preview/', RasterPreviewView.as_view()),
+    path('raster-pixel/', RasterPixelView.as_view()),
 
     # Level Scoring
     path('scoring/run/', RunScoringView.as_view()),

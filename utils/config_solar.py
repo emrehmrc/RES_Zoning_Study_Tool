@@ -204,6 +204,7 @@ class SolarConfig:
         },
         'Solar Irradiation (kWh/m²)': {
             'weight': 50,
+            'normalize_by_max': True,
             'levels': [
                 {'max': 100, 'min': 85, 'score': 100},
                 {'max': 85,  'min': 75, 'score': 70},

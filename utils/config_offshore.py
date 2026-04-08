@@ -21,7 +21,7 @@ class OffShoreConfig:
     
         "Infrastructure & Logistics": [
             "Airport (km)",
-            "Distance to Ports (km)",
+            "Ports (km)",
             "Subsea Cables, pipe lines (km)",
             "220kV Lines",
             "400kV Lines",
@@ -52,7 +52,7 @@ class OffShoreConfig:
         "400kV Lines": ['distance'],
         "220kV Substations": ['distance'],
         "400kV Substations": ['distance'],
-        "Distance to Ports (km)": ['distance'],
+        "Ports (km)": ['distance'],
         "Fishing areas (km)": ['distance'],
         "Military Areas (km)": ['distance'],
         "Natural Risk Zones (km)": ['distance'],
@@ -138,7 +138,7 @@ class OffShoreConfig:
                 {'max': 9999, 'min': 1000, 'score': 0},
             ]
         },
-        'Distance to Ports (km)': {
+        'Ports (km)': {
             'weight': 2,
             'levels': [
                 {'max': 75,    'min': 5,   'score': 100},

@@ -58,19 +58,29 @@ class FinancialScorer:
             df["LAND COST"] = base_capex * financial_constants.get("land_cost_ratio", 0.1)
             
             # Slope Cost: (CAPEX * Slope * 9/15) / 100
-            slope = df.get("Mean_Slope_mean", 0)
-            df["SLOPE COST"] = (base_capex * slope * (9/15)) / 100
+            slope_vals = df["Mean_Slope_mean"] if "Mean_Slope_mean" in df.columns else pd.Series(0.0, index=df.index)
+            df["SLOPE COST"] = (base_capex * slope_vals.fillna(0) * (9/15)) / 100
             
             # TOTAL CAPEX = LİNE + PV + SUBSTATION + LINE EXPROP + SLOPE + LAND
             df["TOTAL CAPEX"] = (df["LİNE CAPEX"] + df["CAPEX OF PV"] + df["SUBSTATION COST"] + 
                                  df["line expropriation"] + df["SLOPE COST"] + df["LAND COST"])
             
-            # Solar Energy Yield
-            solar_irrad = df.get("Solar_irradiation_rate", 0)
-            temp = df.get("Mean_Temperature_mean", 0)
-            # Formula: (1688 * Solar_Irrad * Cap) + 0.004 * (1688 * Solar_Irrad * Cap) * (0 - Mean_Temp)
-            base_yield = 1688 * solar_irrad * capacity
-            temp_loss = 0.004 * base_yield * (0 - temp)
+            # Solar Energy Yield — Series-safe column access
+            solar_irrad = df["Solar_irradiation_rate"] if "Solar_irradiation_rate" in df.columns else pd.Series(0.0, index=df.index)
+            temp        = df["Mean_Temperature_mean"]  if "Mean_Temperature_mean"  in df.columns else pd.Series(0.0, index=df.index)
+            slope       = df["Mean_Slope_mean"]        if "Mean_Slope_mean"        in df.columns else pd.Series(0.0, index=df.index)
+            if solar_irrad.isna().all() or (solar_irrad == 0).all():
+                logging.warning("Solar_irradiation_rate column missing or all zeros — Yearly energy will be 0.")
+            # Solar_irradiation_rate can be absolute (e.g. kWh/m² 1400-2000) or already 0-100.
+            # Normalize to 0–1 fraction by dividing by max so that 1688 multiplier makes sense.
+            irrad_max = solar_irrad.max()
+            if pd.notna(irrad_max) and irrad_max > 1:
+                solar_irrad_frac = solar_irrad / irrad_max
+            else:
+                solar_irrad_frac = solar_irrad
+            # Formula: (1688 * irrad_frac * Cap) ± temperature correction
+            base_yield = 1688 * solar_irrad_frac * capacity
+            temp_loss = 0.004 * base_yield * (0 - temp.fillna(0))
             df["Yearly energy(MWh)"] = base_yield + temp_loss
             
             # Capacity Factor
@@ -82,32 +92,35 @@ class FinancialScorer:
             df["CAPEX"] = base_capex
             df["substation"] = base_capex * financial_constants.get("substation_wind_ratio", 0.06)
             df["land cost"] = base_capex * financial_constants.get("land_cost_ratio", 0.1)
-            
-            # Transport Networks
-            transport_dist = df.get("Mean_Transport_Total", 0)
-            per_mw_cost = financial_constants.get("transport_network_per_mw", 500) # (cap/4)*2000
-            base_transport = financial_constants.get("transport_network_base", 400000)
-            df["TRANSPORT NETWORKS"] = (transport_dist * base_transport) + (capacity * per_mw_cost)
-            
+
+            # Transport Networks: Mean_Transport_Total × 400,000 + (MW/4) × 2,000
+            transport_dist = df["Mean_Transport_Total"] if "Mean_Transport_Total" in df.columns else pd.Series(0.0, index=df.index)
+            df["TRANSPORT NETWORKS"] = transport_dist * 400000 + (capacity / 4) * 2000
+
             # TOTAL CAPEX
-            df["TOTAL CAPEX"] = (df["LİNE CAPEX"] + df["CAPEX"] + df["substation"] + 
+            df["TOTAL CAPEX"] = (df["LİNE CAPEX"] + df["CAPEX"] + df["substation"] +
                                  df["TRANSPORT NETWORKS"] + df["line expropriation"] + df["land cost"])
-            
-            # Wind Energy Yield
-            df["CP"] = cls._lookup_cp_values(df.get("Mean_Wind_mean", pd.Series([0]*len(df))), cp_values)
-            
-            altitude = df.get("Mean_Altitude", 0)
-            wind_speed = df.get("Mean_Wind_mean", 0)
-            
-            # Air density simplified formula: 1.225 - 0.264*(Altitude/2000)
-            air_density = 1.225 - 0.264 * (altitude / 2000)
-            # Swept Area (radius 69m roughly) = 3.14 * 69^2
+
+            # LINE CAPEX RATE: (LINE_CAPEX + line_exp) / (CAPEX + sub + TRANSPORT + land) × 100
+            denom = df["CAPEX"] + df["substation"] + df["TRANSPORT NETWORKS"] + df["land cost"]
+            df["LİNE CAPEX RATE"] = ((df["LİNE CAPEX"] + df["line expropriation"]) / denom.replace(0, np.nan)) * 100
+
+            # Wind Energy Yield — use Series-safe column access to avoid scalar-0 silent bug
+            wind_speed = df["Mean_Wind_mean"] if "Mean_Wind_mean" in df.columns else pd.Series(0.0, index=df.index)
+            altitude   = df["Mean_Altitude"]   if "Mean_Altitude"   in df.columns else pd.Series(0.0, index=df.index)
+            if wind_speed.isna().all() or (wind_speed == 0).all():
+                logging.warning("Mean_Wind_mean column missing or all zeros — Yearly energy will be 0.")
+
+            df["CP"] = cls._lookup_cp_values(wind_speed.fillna(0), cp_values)
+
+            # Air density: 1.225 − 0.264 × (altitude / 2000)
+            air_density = 1.225 - 0.264 * (altitude.fillna(0) / 2000)
+            # Swept area for 69 m rotor radius: π × 69²
             swept_area = 3.14 * 69 * 69
-            
-            # Formula: ((0.5 * density * area * V^3 * CP * 8760 / 1000000) * Cap / 4.2)
-            raw_yield = (0.5 * air_density * swept_area * (wind_speed**3) * df["CP"] * 8760) / 1000000
+            # ENERJİ = ((0.5 × ρ × A × v³ × CP) × 8760 / 1 000 000) × MW / 4.2
+            raw_yield = (0.5 * air_density * swept_area * (wind_speed.fillna(0) ** 3) * df["CP"] * 8760) / 1_000_000
             df["Yearly energy(MWh)"] = raw_yield * (capacity / 4.2)
-            
+
             # Capacity Factor
             df["Capacity Factor"] = df["Yearly energy(MWh)"] / (8760 * capacity)
 

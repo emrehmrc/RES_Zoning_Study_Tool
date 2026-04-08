@@ -27,7 +27,7 @@ export interface ProjectConfig {
   layer_categories: Record<string, string[]>
   predefined_layer_modes: Record<string, string[]>
   all_layer_names: string[]
-  scoring_configs: Record<string, { levels: ScoringLevel[]; weight?: number }>
+  scoring_configs: Record<string, { levels: ScoringLevel[]; weight?: number; normalize_by_max?: boolean }>
   cluster_scoring_rules: ClusterScoringRule[]
 }
 
