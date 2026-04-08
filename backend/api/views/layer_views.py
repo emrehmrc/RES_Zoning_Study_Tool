@@ -556,8 +556,25 @@ class GridInfoView(APIView):
             'grid_origin_y': session.get('grid_origin_y', None),
         })
 
+class GridCellIndexView(APIView):
+    """Return compact (cell_id, left, bottom) list for client-side hover tooltip."""
 
-# ---- Raster preview for map overlay ----
+    def get(self, request):
+        session = SessionManager.get_session(request.session_id)
+        if not session.get('grid_created'):
+            return Response({'cells': []})
+        grid_df = SessionManager.load_dataframe(request.session_id, 'grid_df')
+        if grid_df is None or 'cell_id' not in grid_df.columns:
+            return Response({'cells': []})
+        cols = ['cell_id', 'left', 'bottom']
+        subset = grid_df[[c for c in cols if c in grid_df.columns]]
+        cells = [
+            {'id': int(r['cell_id']), 'left': float(r['left']), 'bottom': float(r['bottom'])}
+            for r in subset.to_dict(orient='records')
+        ]
+        return Response({'cells': cells})
+
+
 
 def _build_colormap():
     """Create a 256-entry RGBA colormap: blue -> cyan -> green -> yellow -> red."""

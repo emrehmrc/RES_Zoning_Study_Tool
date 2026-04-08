@@ -12,7 +12,7 @@ from api.views.layer_views import (
     RasterFilesView, UploadRasterFileView, RunAnalysisView, AnalysisResultsView, AnalysisDownloadView,
     BrowseDirectoryView, BrowseDefaultPathView, BrowseSaveLastDirView,
     NativeFileDialogView, RunAnalysisAsyncView, TaskProgressView,
-    GridInfoView, RasterPreviewView,
+    GridInfoView, RasterPreviewView, GridCellIndexView,
 )
 from api.views.scoring_views import (
     RunScoringView, ScoringResultsView, ScoringDownloadView, ImportScoringCSVView,
@@ -58,6 +58,7 @@ urlpatterns = [
     path('native-file-dialog/', NativeFileDialogView.as_view()),
     path('task/<str:task_id>/progress/', TaskProgressView.as_view()),
     path('grid-info/', GridInfoView.as_view()),
+    path('grid/cell-index/', GridCellIndexView.as_view()),
     path('raster-preview/', RasterPreviewView.as_view()),
 
     # Level Scoring

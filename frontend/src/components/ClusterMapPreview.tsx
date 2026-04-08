@@ -95,6 +95,9 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
   const [showClusters, setShowClusters] = useState(true)
   const [loading, setLoading] = useState(false)
   const [mapReady, setMapReady] = useState(false)
+  const [hoverCellId, setHoverCellId] = useState<number | null>(null)
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null)
+  const cellIndexRef = useRef<Map<string, number>>(new Map())
   const [gridInfo, setGridInfo] = useState<{
     bounds: [[number, number], [number, number]]
     grid_size_x: number
@@ -270,6 +273,53 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
     }
   }, [mapReady, gridInfo])
 
+  // Cell-ID hover tooltip
+  useEffect(() => {
+    if (!mapReady || !gridInfo || !mapRef.current) return
+    const { grid_size_x: gx, grid_size_y: gy, grid_origin_x, grid_origin_y, bounds } = gridInfo
+    if (gx <= 0 || gy <= 0) return
+    let cancelled = false
+    const [[south, west]] = bounds
+    const [bboxX0, bboxY0] = lonLatTo3857(west, south)
+    const originX = (grid_origin_x !== null && grid_origin_x !== undefined && grid_origin_x > 0) ? grid_origin_x : bboxX0
+    const originY = (grid_origin_y !== null && grid_origin_y !== undefined && grid_origin_y > 0) ? grid_origin_y : bboxY0
+    apiGet<{ cells: { id: number; left: number; bottom: number }[] }>('/grid/cell-index/')
+      .then(r => {
+        if (cancelled) return
+        const idx = new Map<string, number>()
+        for (const cell of r.cells) {
+          const col = Math.round((cell.left - originX) / gx)
+          const row = Math.round((cell.bottom - originY) / gy)
+          idx.set(`${col}_${row}`, cell.id)
+        }
+        cellIndexRef.current = idx
+      })
+      .catch(() => {})
+    const map = mapRef.current
+    const handleMove = (e: any) => {
+      if (cellIndexRef.current.size === 0) return
+      const [mx, my] = lonLatTo3857(e.latlng.lng, e.latlng.lat)
+      const col = Math.floor((mx - originX) / gx)
+      const row = Math.floor((my - originY) / gy)
+      const id = cellIndexRef.current.get(`${col}_${row}`)
+      if (id !== undefined) {
+        setHoverCellId(id)
+        setHoverPos({ x: e.containerPoint.x, y: e.containerPoint.y })
+      } else {
+        setHoverCellId(null); setHoverPos(null)
+      }
+    }
+    const handleOut = () => { setHoverCellId(null); setHoverPos(null) }
+    map.on('mousemove', handleMove)
+    map.on('mouseout', handleOut)
+    return () => {
+      cancelled = true
+      map.off('mousemove', handleMove)
+      map.off('mouseout', handleOut)
+      setHoverCellId(null); setHoverPos(null)
+    }
+  }, [mapReady, gridInfo])
+
   // Toggle boundary
   useEffect(() => {
     if (!mapRef.current || !boundaryLayerRef.current) return
@@ -347,6 +397,14 @@ export default function ClusterMapPreview({ clusters, focusWkt, activeTab }: Pro
           </div>
         )}
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+        {hoverCellId !== null && hoverPos !== null && (
+          <div
+            className="pointer-events-none absolute z-[2000] bg-slate-800/90 text-white text-xs font-mono px-2 py-1 rounded shadow-lg whitespace-nowrap"
+            style={{ left: hoverPos.x + 14, top: hoverPos.y - 32 }}
+          >
+            Cell ID: {hoverCellId}
+          </div>
+        )}
       </div>
     </div>
   )
