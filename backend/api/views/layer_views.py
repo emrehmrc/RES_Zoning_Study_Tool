@@ -39,9 +39,32 @@ class AddLayerView(APIView):
 
         if not os.path.isfile(raster_path):
             return Response(
-                {'error': f'Raster file not found: {raster_path}'},
+                {'error': f'File not found: {raster_path}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ── Detect vector seabed layers (shapefile) ────────────────────────
+        _is_shapefile = raster_path.lower().endswith('.shp')
+        if _is_shapefile:
+            existing_names = [c['prefix'] for c in session['layer_configs']]
+            if layer_name in existing_names:
+                return Response(
+                    {'error': f'Layer "{layer_name}" already exists.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            layer_config = {
+                'path': raster_path,
+                'prefix': layer_name,
+                'layer_type': 'vector_seabed',
+                'analysis_modes': ['seabed_dominant'],
+                'target_value': 1,
+                'config': {},
+                'is_predefined': is_predefined,
+            }
+            configs = session['layer_configs']
+            configs.append(layer_config)
+            SessionManager.update_session(request.session_id, layer_configs=configs)
+            return Response({'message': f'Layer "{layer_name}" added.', 'layers': configs})
 
         # ── File Size Validation: reject files larger than 10 GB ──
         _MAX_FILE_SIZE_BYTES = 10 * 1024 ** 3  # 10 GB
@@ -138,8 +161,8 @@ class UploadRasterFileView(APIView):
         f = request.FILES.get('raster_file')
         if not f:
             return Response({'error': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not f.name.lower().endswith(('.tif', '.tiff')):
-            return Response({'error': 'Only .tif / .tiff files are accepted.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not f.name.lower().endswith(('.tif', '.tiff', '.shp', '.dbf', '.shx', '.prj', '.cpg', '.qmd', '.sbn', '.sbx')):
+            return Response({'error': 'Only .tif / .tiff / .shp (and sidecar) files are accepted.'}, status=status.HTTP_400_BAD_REQUEST)
 
         dest_dir = Config.DATA_DIR
         os.makedirs(dest_dir, exist_ok=True)
@@ -310,7 +333,7 @@ class BrowseSaveLastDirView(APIView):
 class BrowseDirectoryView(APIView):
     """Return folders and .tif files under a given directory path."""
 
-    ALLOWED_EXTENSIONS = {'.tif', '.tiff'}
+    ALLOWED_EXTENSIONS = {'.tif', '.tiff', '.shp'}
 
     def get(self, request):
         path = request.query_params.get('path', '')
@@ -406,6 +429,7 @@ def _run_analysis_work(session_id, layer_configs, *, progress_callback):
     import geopandas as _gpd
     from shapely import wkt as _wkt
     from config import Config as _Cfg
+    from engines.seabed_scorer import calculate_seabed_layer
 
     progress_callback(5, 'Loading grid data...')
     grid_df = SessionManager.load_dataframe(session_id, 'grid_df')
@@ -414,17 +438,33 @@ def _run_analysis_work(session_id, layer_configs, *, progress_callback):
     if 'cell_id' not in grid_gdf.columns:
         grid_gdf['cell_id'] = range(len(grid_gdf))
 
+    # Split layer configs: vector seabed layers handled separately
+    raster_layers = [lc for lc in layer_configs if lc.get('layer_type') != 'vector_seabed']
+    seabed_layers = [lc for lc in layer_configs if lc.get('layer_type') == 'vector_seabed']
+
     n_layers = len(layer_configs)
     n_cells = len(grid_gdf)
     progress_callback(15, f'Running parallel analysis: {n_layers} layers, {n_cells:,} cells...')
 
     scorer = UniversalRasterScorer()
-    result = scorer.calculate_layers_adaptive(
-        grid_gdf=grid_gdf,
-        layer_configs=layer_configs,
-        chunk_size=_Cfg.DEFAULT_CHUNK_SIZE,
-        n_workers=_Cfg.DEFAULT_N_WORKERS,
-    )
+
+    if raster_layers:
+        result = scorer.calculate_layers_adaptive(
+            grid_gdf=grid_gdf,
+            layer_configs=raster_layers,
+            chunk_size=_Cfg.DEFAULT_CHUNK_SIZE,
+            n_workers=_Cfg.DEFAULT_N_WORKERS,
+        )
+    else:
+        # No raster layers — start with bare grid id/wkt frame
+        import geopandas as _gpd2
+        result = grid_gdf[['cell_id', 'wkt']].copy()
+
+    # Process vector seabed layers and merge
+    for _slc in seabed_layers:
+        progress_callback(75, f'Processing seabed layer: {_slc["prefix"]}...')
+        _sb_result = calculate_seabed_layer(grid_gdf, _slc['path'], _slc['prefix'])
+        result = result.merge(_sb_result, on='cell_id', how='left')
 
     progress_callback(90, 'Saving results...')
 
@@ -439,6 +479,14 @@ def _run_analysis_work(session_id, layer_configs, *, progress_callback):
         scoring_cfgs = getattr(cfg_cls, 'SCORING_CONFIGS', {})
         for layer_cfg in layer_configs:
             prefix = layer_cfg['prefix']
+
+            # Bathymetry rasters store depth as negative values; convert to positive.
+            if scoring_cfgs.get(prefix, {}).get('type') == 'bathymetry_dual':
+                for suffix in ('_min', '_max', '_mean'):
+                    col = f'{prefix}{suffix}'
+                    if col in result.columns:
+                        result[col] = result[col].abs().round(3)
+
             if scoring_cfgs.get(prefix, {}).get('normalize_by_max', False):
                 # Find the _max column to get the global reference maximum
                 max_col = f'{prefix}_max'
@@ -803,3 +851,72 @@ class RasterPixelView(APIView):
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VectorSeabedPreviewView(APIView):
+    """Return a simplified GeoJSON preview of a seabed shapefile (EPSG:4326),
+    with each feature tagged by its mapped substrate category."""
+
+    # Category → fill colour (hex, shown in Leaflet)
+    CATEGORY_COLORS = {
+        'sand':               '#f5c842',
+        'gravel':             '#a07850',
+        'rack/bad rack/mud':  '#6ea86e',
+        'boulder/stony/silt': '#888888',
+    }
+
+    def get(self, request):
+        path = request.query_params.get('path', '')
+        if not path:
+            return Response({'error': 'path parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        norm_path = os.path.normpath(path)
+        if not os.path.isfile(norm_path):
+            return Response({'error': 'File not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not norm_path.lower().endswith('.shp'):
+            return Response({'error': 'Only .shp files are supported.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import geopandas as gpd
+            from engines.seabed_scorer import SUBSTRATE_MAP, _map_substrate, FALLBACK_CATEGORY
+
+            gdf = gpd.read_file(norm_path)
+            if gdf.crs is None:
+                gdf = gdf.set_crs('EPSG:4326')
+            if gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs('EPSG:4326')
+
+            # Find substrate column
+            col_map = {c.lower(): c for c in gdf.columns}
+            actual_col = None
+            for candidate in ['substrate', 'hab_type', 'type', 'class']:
+                if candidate in col_map:
+                    actual_col = col_map[candidate]
+                    break
+
+            features = []
+            for _, row in gdf.iterrows():
+                geom = row.geometry
+                if geom is None or geom.is_empty:
+                    continue
+                cat = _map_substrate(str(row[actual_col])) if actual_col else FALLBACK_CATEGORY
+                color = self.CATEGORY_COLORS.get(cat, '#aaaaaa')
+                features.append({
+                    'type': 'Feature',
+                    'geometry': geom.__geo_interface__,
+                    'properties': {
+                        'category': cat,
+                        'color': color,
+                        'raw': str(row[actual_col]) if actual_col else '',
+                    },
+                })
+
+            return Response({
+                'type': 'FeatureCollection',
+                'features': features,
+                'category_colors': self.CATEGORY_COLORS,
+            })
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

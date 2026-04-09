@@ -14,7 +14,7 @@ function isKvConnectionLayer(name: string): boolean {
 }
 
 interface LayerScoringConfig {
-  type: 'distance_coverage' | 'single_mode'
+  type: 'distance_coverage' | 'single_mode' | 'bathymetry_dual' | 'seabed_categorical'
   column: string
   distance_column?: string
   coverage_column?: string
@@ -23,6 +23,13 @@ interface LayerScoringConfig {
   levels: { min: number; max: number; score: number }[]
   distance_levels?: { min: number; max: number; score: number }[]
   normalize_by_max?: boolean
+  // bathymetry_dual specific
+  depth_threshold?: number
+  depth_column?: string           // which column holds depth values (for wind/slope it's Bathymetry _max)
+  bottom_fixed_levels?: { min: number; max: number; score: number }[]
+  floating_levels?: { min: number; max: number; score: number }[]
+  // seabed_categorical specific
+  category_scores?: Record<string, number>  // e.g. { sand: 100, gravel: 70, ... }
 }
 
 interface LayerConstraintConfig {
@@ -63,6 +70,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         let mode = 'unknown'
         if (col.endsWith('_dist_km')) { layerName = col.replace(/_dist_km$/, ''); mode = 'distance' }
         else if (col.endsWith('_coverage_pct')) { layerName = col.replace(/_coverage_pct$/, ''); mode = 'coverage' }
+        else if (col.endsWith('_dominant')) { layerName = col.replace(/_dominant$/, ''); mode = 'seabed_dominant' }
         else if (col.endsWith('_mean')) { layerName = col.replace(/_mean$/, ''); mode = 'mean' }
         else if (col.endsWith('_max')) { layerName = col.replace(/_max$/, ''); mode = 'max' }
         else if (col.endsWith('_min')) { layerName = col.replace(/_min$/, ''); mode = 'min' }
@@ -95,7 +103,41 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
         const hasDistance = 'distance' in group.modes
         const hasCoverage = 'coverage' in group.modes
 
-        if (hasDistance && hasCoverage) {
+        // Any layer whose config entry has type='bathymetry_dual' (Bathymetry, Wind Speed, Slope in OffShore mode)
+        // uses the depth-threshold dual scoring: ≤threshold → bottom_fixed_levels, >threshold → floating_levels
+        const layerCfgRaw = config.scoring_configs[layerName] as any
+        const isDualMode = layerCfgRaw?.type === 'bathymetry_dual'
+        const isSeabedCat = layerCfgRaw?.type === 'seabed_categorical'
+          || ('seabed_dominant' in group.modes)
+
+        if (isSeabedCat) {
+          const dominantCol = group.modes['seabed_dominant'] ?? Object.values(group.modes)[0]
+          const defaultCatScores = { sand: 100, gravel: 70, 'rack/bad rack/mud': 40, 'boulder/stony/silt': 0 }
+          sConfigs[layerName] = {
+            type: 'seabed_categorical',
+            column: dominantCol,
+            weight: layerCfgRaw?.weight ?? 10,
+            levels: [],
+            depth_threshold: layerCfgRaw?.depth_threshold ?? 60,
+            category_scores: layerCfgRaw?.category_scores ?? defaultCatScores,
+          }
+        } else if (isDualMode) {
+          const firstMode = Object.keys(group.modes)[0]
+          // Prefer mean column for wind/slope; max column for bathymetry
+          const preferredCol = group.modes['mean'] ?? group.modes['max'] ?? group.modes[firstMode]
+          // For non-bathymetry dual layers (wind, slope), depth is taken from the Bathymetry _max column
+          const isBathLayer = layerName.toLowerCase().includes('bathymetry')
+          sConfigs[layerName] = {
+            type: 'bathymetry_dual',
+            column: preferredCol,
+            weight: layerCfgRaw?.weight ?? 10,
+            levels: [],
+            depth_threshold: layerCfgRaw?.depth_threshold ?? 60,
+            depth_column: isBathLayer ? preferredCol : undefined, // resolved at scoring send time
+            bottom_fixed_levels: (layerCfgRaw?.bottom_fixed_levels ?? []).map((l: ScoringLevel) => ({ ...l })),
+            floating_levels: (layerCfgRaw?.floating_levels ?? []).map((l: ScoringLevel) => ({ ...l })),
+          }
+        } else if (hasDistance && hasCoverage) {
           const distLevels = config.scoring_configs[layerName]?.levels
             || config.scoring_configs['distance']?.levels || defaultLevels
           sConfigs[layerName] = {
@@ -144,6 +186,15 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
               ...(cfg.max_coverage_threshold !== undefined && prev[name].max_coverage_threshold !== undefined
                 ? { max_coverage_threshold: prev[name].max_coverage_threshold }
                 : {}),
+              ...(cfg.type === 'bathymetry_dual' ? {
+                depth_threshold: prev[name].depth_threshold ?? cfg.depth_threshold,
+                bottom_fixed_levels: prev[name].bottom_fixed_levels ?? cfg.bottom_fixed_levels,
+                floating_levels: prev[name].floating_levels ?? cfg.floating_levels,
+              } : {}),
+              ...(cfg.type === 'seabed_categorical' ? {
+                depth_threshold: prev[name].depth_threshold ?? cfg.depth_threshold,
+                category_scores: prev[name].category_scores ?? cfg.category_scores,
+              } : {}),
             }
           } else {
             merged[name] = cfg
@@ -205,6 +256,29 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
     setScoringConfigs(prev => ({ ...prev, [col]: { ...prev[col], max_coverage_threshold: value } }))
   }
 
+  function updateDepthThreshold(col: string, value: number) {
+    setScoringConfigs(prev => ({ ...prev, [col]: { ...prev[col], depth_threshold: value } }))
+  }
+
+  function updateBathyLevel(col: string, section: 'bottom_fixed_levels' | 'floating_levels', idx: number, field: 'min' | 'max' | 'score', value: number) {
+    setScoringConfigs(prev => {
+      const cfg = prev[col]
+      if (!cfg) return prev
+      const levels = (cfg[section] || []).map((l: any) => ({ ...l }))
+      levels[idx] = { ...levels[idx], [field]: value }
+      if (field === 'min' && idx < levels.length - 1) levels[idx + 1] = { ...levels[idx + 1], max: value }
+      if (field === 'max' && idx > 0) levels[idx - 1] = { ...levels[idx - 1], min: value }
+      return { ...prev, [col]: { ...cfg, [section]: levels } }
+    })
+  }
+
+  function updateCategoryScore(col: string, cat: string, value: number) {
+    setScoringConfigs(prev => ({
+      ...prev,
+      [col]: { ...prev[col], category_scores: { ...(prev[col].category_scores ?? {}), [cat]: value } }
+    }))
+  }
+
   async function importCSV(file: File) {
     setImportLoading(true); setError('')
     try {
@@ -252,13 +326,32 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
       // Validate level ranges before submitting
       for (const [layerName, mode] of Object.entries(columnModes)) {
         if (mode === 'scoring' && scoringConfigs[layerName]) {
-          const invalidLevels = scoringConfigs[layerName].levels
-            .map((l, i) => (l.min >= l.max ? `Level ${i + 1} (min=${l.min} ≥ max=${l.max})` : null))
-            .filter(Boolean)
-          if (invalidLevels.length > 0) {
-            setError(`"⚠️ ${layerName}": ${invalidLevels.join(', ')} — each level must have min < max.`)
-            setLoading(false)
-            return
+          const cfg = scoringConfigs[layerName]
+          if (cfg.type === 'seabed_categorical') {
+            continue  // no numeric levels to validate
+          } else if (cfg.type === 'bathymetry_dual') {
+            const checkLevels = (lvls: any[], label: string) => {
+              const inv = (lvls || []).map((l, i) => l.min >= l.max ? `${label} Level ${i + 1} (min=${l.min} ≥ max=${l.max})` : null).filter(Boolean)
+              return inv
+            }
+            const invalid = [
+              ...checkLevels(cfg.bottom_fixed_levels || [], 'Bottom Fixed'),
+              ...checkLevels(cfg.floating_levels || [], 'Floating'),
+            ]
+            if (invalid.length > 0) {
+              setError(`"⚠️ ${layerName}": ${invalid.join(', ')} — each level must have min < max.`)
+              setLoading(false)
+              return
+            }
+          } else {
+            const invalidLevels = cfg.levels
+              .map((l, i) => (l.min >= l.max ? `Level ${i + 1} (min=${l.min} ≥ max=${l.max})` : null))
+              .filter(Boolean)
+            if (invalidLevels.length > 0) {
+              setError(`"⚠️ ${layerName}": ${invalidLevels.join(', ')} — each level must have min < max.`)
+              setLoading(false)
+              return
+            }
           }
         }
       }
@@ -280,6 +373,17 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
           // For distance_coverage type, backend expects `distance_levels`
           if (cfg.type === 'distance_coverage') {
             cfg.distance_levels = cfg.levels
+          }
+          // For bathymetry_dual non-bathymetry layers, resolve depth_column from available columns
+          if (cfg.type === 'bathymetry_dual' && !cfg.depth_column) {
+            // Find the Bathymetry _max column in analysed data
+            const bathMaxCol = columns.find(c => c.toLowerCase().includes('bathymetry') && c.endsWith('_max'))
+            if (bathMaxCol) cfg.depth_column = bathMaxCol
+          }
+          // For seabed_categorical, resolve depth_column from Bathymetry _max column
+          if (cfg.type === 'seabed_categorical' && !cfg.depth_column) {
+            const bathMaxCol = columns.find(c => c.toLowerCase().includes('bathymetry') && c.endsWith('_max'))
+            if (bathMaxCol) cfg.depth_column = bathMaxCol
           }
           scoring[layerName] = cfg
         } else if (mode === 'exclusion' && constraintConfigs[layerName]) {
@@ -392,9 +496,128 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
                             <span className="ml-1 text-xs text-slate-400 cursor-help" title="If coverage > this value, distance scoring will be skipped">ⓘ</span>
                           </label>
                         )}
+                        {scoringConfigs[layerName].type === 'bathymetry_dual' && (
+                          <div className="flex items-center gap-4 flex-wrap">
+                            <label className="text-sm text-slate-600">
+                              Depth Threshold (m):
+                              <input type="number" min={0} step={1}
+                                value={scoringConfigs[layerName].depth_threshold ?? 60}
+                                onChange={e => updateDepthThreshold(layerName, +e.target.value)}
+                                className="ml-2 w-24 border rounded p-1.5 text-sm" />
+                              <span className="ml-1 text-xs text-slate-400 cursor-help" title="Cells with depth ≤ threshold use Bottom Fixed scoring; deeper cells use Floating scoring">ⓘ</span>
+                            </label>
+                            {!layerName.toLowerCase().includes('bathymetry') && (
+                              <span className="text-xs text-slate-400 italic">
+                                Depth read from Bathymetry layer
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {scoringConfigs[layerName].type === 'seabed_categorical' && (
+                          <div className="flex items-center gap-4 flex-wrap">
+                            <label className="text-sm text-slate-600">
+                              Depth Threshold (m):
+                              <input type="number" min={0} step={1}
+                                value={scoringConfigs[layerName].depth_threshold ?? 60}
+                                onChange={e => updateDepthThreshold(layerName, +e.target.value)}
+                                className="ml-2 w-24 border rounded p-1.5 text-sm" />
+                              <span className="ml-1 text-xs text-slate-400 cursor-help" title="Cells deeper than threshold are floating and not scored by seabed">ⓘ</span>
+                            </label>
+                            <span className="text-xs text-slate-400 italic">Depth read from Bathymetry layer</span>
+                          </div>
+                        )}
                       </div>
 
-                      {/* Level cards — 4 columns like original Streamlit */}
+                      {/* Seabed categorical — category score cards */}
+                      {scoringConfigs[layerName].type === 'seabed_categorical' ? (
+                        <div className="space-y-3">
+                          <p className="text-xs font-medium text-amber-600 mb-2">🪨 Seabed Category Scores (bottom-fixed only)</p>
+                          <div className="grid grid-cols-4 gap-3">
+                            {Object.entries(scoringConfigs[layerName].category_scores ?? {}).map(([cat, score]) => (
+                              <div key={cat} className="rounded-lg p-3 bg-amber-50 border border-amber-200 space-y-2">
+                                <p className="text-xs font-semibold text-slate-600 truncate" title={cat}>{cat}</p>
+                                <label className="block text-xs text-slate-500">Score
+                                  <input type="number" min={0} max={100} step={1} value={score as number}
+                                    onChange={e => updateCategoryScore(layerName, cat, +e.target.value)}
+                                    className="w-full border rounded p-1.5 text-sm mt-0.5" />
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : scoringConfigs[layerName].type === 'bathymetry_dual' ? (
+                        <div className="space-y-4">
+                          {/* Bottom Fixed */}
+                          <div>
+                            <p className="text-xs font-medium text-blue-600 mb-2">
+                              ⚓ Bottom Fixed — depth ≤ {scoringConfigs[layerName].depth_threshold ?? 60} m
+                            </p>
+                            <div className="grid grid-cols-4 gap-3">
+                              {(scoringConfigs[layerName].bottom_fixed_levels || []).map((lv, i) => {
+                                const invalid = lv.min >= lv.max
+                                return (
+                                  <div key={i} className={`rounded-lg p-3 border space-y-2 ${invalid ? 'bg-red-50 border-red-300' : 'bg-blue-50 border-blue-200'}`}>
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs font-semibold text-slate-600">Level {i + 1}</p>
+                                      {invalid && <span className="text-xs text-red-500 font-medium">min ≥ max</span>}
+                                    </div>
+                                    <label className="block text-xs text-slate-500">Max
+                                      <input type="number" step="any" value={lv.max}
+                                        onChange={e => updateBathyLevel(layerName, 'bottom_fixed_levels', i, 'max', +e.target.value)}
+                                        className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                                    </label>
+                                    <label className="block text-xs text-slate-500">Min
+                                      <input type="number" step="any" value={lv.min}
+                                        onChange={e => updateBathyLevel(layerName, 'bottom_fixed_levels', i, 'min', +e.target.value)}
+                                        className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                                    </label>
+                                    <label className="block text-xs text-slate-500">Score
+                                      <input type="number" step={1} min={0} max={100} value={lv.score}
+                                        onChange={e => updateBathyLevel(layerName, 'bottom_fixed_levels', i, 'score', +e.target.value)}
+                                        className="w-full border rounded p-1.5 text-sm mt-0.5" />
+                                    </label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          {/* Floating */}
+                          <div>
+                            <p className="text-xs font-medium text-cyan-600 mb-2">
+                              🌊 Floating — depth &gt; {scoringConfigs[layerName].depth_threshold ?? 60} m
+                            </p>
+                            <div className="grid grid-cols-4 gap-3">
+                              {(scoringConfigs[layerName].floating_levels || []).map((lv, i) => {
+                                const invalid = lv.min >= lv.max
+                                return (
+                                  <div key={i} className={`rounded-lg p-3 border space-y-2 ${invalid ? 'bg-red-50 border-red-300' : 'bg-cyan-50 border-cyan-200'}`}>
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs font-semibold text-slate-600">Level {i + 1}</p>
+                                      {invalid && <span className="text-xs text-red-500 font-medium">min ≥ max</span>}
+                                    </div>
+                                    <label className="block text-xs text-slate-500">Max
+                                      <input type="number" step="any" value={lv.max}
+                                        onChange={e => updateBathyLevel(layerName, 'floating_levels', i, 'max', +e.target.value)}
+                                        className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                                    </label>
+                                    <label className="block text-xs text-slate-500">Min
+                                      <input type="number" step="any" value={lv.min}
+                                        onChange={e => updateBathyLevel(layerName, 'floating_levels', i, 'min', +e.target.value)}
+                                        className={`w-full border rounded p-1.5 text-sm mt-0.5 ${invalid ? 'border-red-400 bg-red-50' : ''}`} />
+                                    </label>
+                                    <label className="block text-xs text-slate-500">Score
+                                      <input type="number" step={1} min={0} max={100} value={lv.score}
+                                        onChange={e => updateBathyLevel(layerName, 'floating_levels', i, 'score', +e.target.value)}
+                                        className="w-full border rounded p-1.5 text-sm mt-0.5" />
+                                    </label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                      /* Standard level cards — 4 columns like original Streamlit */
                       <div>
                         <p className="text-xs font-medium text-slate-500 mb-2">
                           {scoringConfigs[layerName].type === 'distance_coverage' ? '📏 Distance Scoring Levels (used when coverage ≤ max)' : '📈 Scoring Levels'}
@@ -430,6 +653,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
                           )})}
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
 

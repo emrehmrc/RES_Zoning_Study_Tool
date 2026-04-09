@@ -27,7 +27,16 @@ export interface ProjectConfig {
   layer_categories: Record<string, string[]>
   predefined_layer_modes: Record<string, string[]>
   all_layer_names: string[]
-  scoring_configs: Record<string, { levels: ScoringLevel[]; weight?: number; normalize_by_max?: boolean }>
+  scoring_configs: Record<string, {
+    levels?: ScoringLevel[]
+    weight?: number
+    normalize_by_max?: boolean
+    type?: string
+    depth_threshold?: number
+    bottom_fixed_levels?: ScoringLevel[]
+    floating_levels?: ScoringLevel[]
+    category_scores?: Record<string, number>
+  }>
   cluster_scoring_rules: ClusterScoringRule[]
 }
 
@@ -38,6 +47,7 @@ export interface LayerConfig {
   target_value: number
   config: Record<string, any>
   is_predefined: boolean
+  layer_type?: string
 }
 
 export interface ProjectStatus {

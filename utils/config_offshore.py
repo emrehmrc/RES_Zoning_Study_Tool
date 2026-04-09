@@ -15,8 +15,7 @@ class OffShoreConfig:
     
     LAYER_CATEGORIES = {
         "Wind Resources": [
-            "Wind Speed (m/s) - bottom fixed",
-            "Wind Speed (m/s) - floating"
+            "Wind Speed (m/s)"
         ],
     
         "Infrastructure & Logistics": [
@@ -38,10 +37,8 @@ class OffShoreConfig:
         ],
         "Marine & Terrain": [
             "Sea bed (only for bottom fixed)",
-            "Bathymetry (for bottom fixed) (m)",
-            "Bathymetry (for floating) (m)",
-            "Slope (%) - bottom fixed",
-            "Slope (%) - floating"
+            "Bathymetry (m)",
+            "Slope (%)"
         ]
     }
 
@@ -57,16 +54,13 @@ class OffShoreConfig:
         "Military Areas (km)": ['distance'],
         "Natural Risk Zones (km)": ['distance'],
         "Protected Areas (Habitats) (km)": ['distance'],
-        "Sea bed": ['min'],
+        "Sea bed": ['seabed_dominant'],
         "Shipping": ['distance'],
-        "Bathymetry (for bottom fixed) (m)": ['max'],
-        "Bathymetry (for floating) (m)": ['max'],
+        "Bathymetry (m)": ['max'],
         "Subsea Cables (km)": ['distance'],
         "Touristic Places (km)": ['distance'],
-        "Wind Speed (m/s) - bottom fixed": ['max', 'min', 'mean'],
-        "Wind Speed (m/s) - floating": ['max', 'min', 'mean'],
-        "Slope (%) - bottom fixed": ['max', 'min', 'mean'],
-        "Slope (%) - floating": ['max', 'min', 'mean'],
+        "Wind Speed (m/s)": ['max', 'min', 'mean'],
+        "Slope (%)": ['max', 'min', 'mean'],
     }
 
     ALL_LAYER_NAMES = [
@@ -119,24 +113,33 @@ class OffShoreConfig:
         '400kV Lines':       {'weight': 25, 'levels': [{'max': 20,    'min': 0,  'score': 100}, {'max': 40,    'min': 20, 'score': 70}, {'max': 60,    'min': 40, 'score': 40}, {'max': 99999, 'min': 60, 'score': 10}]},
         '220kV Substations': {'weight': 25, 'levels': [{'max': 20,    'min': 0,  'score': 100}, {'max': 30,    'min': 20, 'score': 70}, {'max': 40,    'min': 30, 'score': 40}, {'max': 9999,  'min': 40, 'score': 10}]},
         '400kV Substations': {'weight': 25, 'levels': [{'max': 20,    'min': 0,  'score': 100}, {'max': 30,    'min': 20, 'score': 70}, {'max': 40,    'min': 30, 'score': 40}, {'max': 99999, 'min': 40, 'score': 10}]},
-        # ── Per-layer scoring defaults ─────────────────────────────────────
-        'Bathymetry (for bottom fixed) (m)': {
+        'Sea bed (only for bottom fixed)': {
+            'type': 'seabed_categorical',
             'weight': 10,
-            'levels': [
+            'depth_threshold': 60,
+            'category_scores': {
+                'sand':                100,
+                'gravel':               70,
+                'rack/bad rack/mud':    40,
+                'boulder/stony/silt':    0,
+            },
+        },
+        'Bathymetry (m)': {
+            'type': 'bathymetry_dual',
+            'weight': 10,
+            'depth_threshold': 60,
+            'bottom_fixed_levels': [
                 {'max': 20,    'min': 0,  'score': 100},
                 {'max': 40,    'min': 20, 'score': 70},
                 {'max': 60,    'min': 40, 'score': 40},
                 {'max': 99999, 'min': 60, 'score': 0},
-            ]
-        },
-        'Bathymetry (for floating) (m)': {
-            'weight': 15,
-            'levels': [
+            ],
+            'floating_levels': [
                 {'max': 200,  'min': 60,   'score': 100},
                 {'max': 500,  'min': 200,  'score': 70},
                 {'max': 1000, 'min': 500,  'score': 40},
                 {'max': 9999, 'min': 1000, 'score': 0},
-            ]
+            ],
         },
         'Ports (km)': {
             'weight': 2,
@@ -192,23 +195,22 @@ class OffShoreConfig:
                 {'max': 99999, 'min': 200, 'score': 0},
             ]
         },
-        'Slope (%) - bottom fixed': {
+        'Slope (%)': {
+            'type': 'bathymetry_dual',
             'weight': 10,
-            'levels': [
+            'depth_threshold': 60,
+            'bottom_fixed_levels': [
                 {'max': 2,    'min': 0,  'score': 100},
                 {'max': 5,    'min': 2,  'score': 70},
                 {'max': 10,   'min': 5,  'score': 40},
                 {'max': 9999, 'min': 10, 'score': 0},
-            ]
-        },
-        'Slope (%) - floating': {
-            'weight': 5,
-            'levels': [
+            ],
+            'floating_levels': [
                 {'max': 5,    'min': 0,  'score': 100},
                 {'max': 10,   'min': 5,  'score': 70},
                 {'max': 15,   'min': 10, 'score': 40},
                 {'max': 9999, 'min': 15, 'score': 0},
-            ]
+            ],
         },
         'Subsea Cables (km)': {
             'weight': 0.2,
@@ -228,23 +230,22 @@ class OffShoreConfig:
                 {'max': 5,     'min': 0,  'score': 0},
             ]
         },
-        'Wind Speed (m/s) - bottom fixed': {
+        'Wind Speed (m/s)': {
+            'type': 'bathymetry_dual',
             'weight': 35,
-            'levels': [
+            'depth_threshold': 60,
+            'bottom_fixed_levels': [
                 {'max': 99999, 'min': 8.5, 'score': 100},
                 {'max': 8.5,   'min': 8,   'score': 70},
                 {'max': 8,     'min': 7.5, 'score': 40},
                 {'max': 7.5,   'min': 0,   'score': 0},
-            ]
-        },
-        'Wind Speed (m/s) - floating': {
-            'weight': 35,
-            'levels': [
+            ],
+            'floating_levels': [
                 {'max': 99999, 'min': 8.5, 'score': 100},
                 {'max': 8.5,   'min': 8,   'score': 70},
                 {'max': 8,     'min': 7.5, 'score': 40},
                 {'max': 7.5,   'min': 0,   'score': 0},
-            ]
+            ],
         },
     }
 

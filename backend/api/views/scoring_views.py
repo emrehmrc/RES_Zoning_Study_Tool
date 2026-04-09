@@ -116,6 +116,75 @@ class RunScoringView(APIView):
                     knockout_mask |= layer_knockout
                     results_df.loc[layer_knockout, 'EXCLUSION_REASONS'] += f'{layer_name} (score=0) | '
 
+                elif cfg['type'] == 'bathymetry_dual':
+                    column = cfg['column']
+                    threshold = float(cfg.get('depth_threshold', 60))
+                    bf_levels = cfg['bottom_fixed_levels']
+                    fl_levels = cfg['floating_levels']
+                    weight = cfg['weight']
+                    # depth_column: the bathymetry column used to decide which level table applies.
+                    # For Bathymetry itself, depth_column == column.
+                    # For Wind Speed / Slope, depth_column is the Bathymetry _max column.
+                    depth_col = cfg.get('depth_column') or column
+
+                    col_values   = results_df[column].copy()   if column   in results_df.columns else pd.Series(0.0, index=results_df.index)
+                    depth_values = results_df[depth_col].copy() if depth_col in results_df.columns else col_values
+
+                    def _bath_score(idx, _cv=col_values, _dv=depth_values, _t=threshold, _bfl=bf_levels, _fll=fl_levels):
+                        val   = _cv.iloc[idx] if hasattr(_cv, 'iloc') else _cv
+                        depth = _dv.iloc[idx] if hasattr(_dv, 'iloc') else _dv
+                        if pd.isna(val):
+                            return 0.0
+                        levels = _bfl if (pd.isna(depth) or float(depth) <= _t) else _fll
+                        for lv in levels:
+                            if lv['min'] <= float(val) <= lv['max']:
+                                return float(lv['score'])
+                        return 0.0
+
+                    layer_scores = pd.Series(
+                        [_bath_score(i) for i in range(len(results_df))],
+                        index=results_df.index
+                    )
+                    results_df[f'{layer_name}_SCORE'] = layer_scores
+                    total_weighted_score += layer_scores * weight
+
+                    layer_knockout = layer_scores == 0
+                    knockout_mask |= layer_knockout
+                    results_df.loc[layer_knockout, 'EXCLUSION_REASONS'] += f'{layer_name} (score=0) | '
+
+                elif cfg['type'] == 'seabed_categorical':
+                    # Column holds a category string: 'sand' | 'gravel' | 'rack/bad rack/mud' | 'boulder/stony/silt'
+                    # Scoring is depth-aware: only bottom-fixed cells (depth ≤ depth_threshold) are scored.
+                    # Deeper (floating) cells are skipped — seabed geology is irrelevant for floating turbines.
+                    column = cfg['column']
+                    cat_scores = {str(k).lower(): float(v) for k, v in cfg.get('category_scores', {}).items()}
+                    weight = cfg['weight']
+                    threshold = float(cfg.get('depth_threshold', 60))
+                    depth_col = cfg.get('depth_column')
+
+                    cat_values = results_df[column].fillna('').str.lower() if column in results_df.columns else pd.Series('', index=results_df.index)
+                    depth_values = results_df[depth_col].fillna(0) if (depth_col and depth_col in results_df.columns) else pd.Series(0.0, index=results_df.index)
+
+                    def _seabed_score(idx, _cv=cat_values, _dv=depth_values, _t=threshold, _cs=cat_scores):
+                        depth = float(_dv.iloc[idx])
+                        if depth > _t:
+                            return 0.0  # floating — skip penalty
+                        cat = str(_cv.iloc[idx])
+                        return float(_cs.get(cat, 0.0))
+
+                    layer_scores = pd.Series(
+                        [_seabed_score(i) for i in range(len(results_df))],
+                        index=results_df.index
+                    )
+                    results_df[f'{layer_name}_SCORE'] = layer_scores
+                    total_weighted_score += layer_scores * weight
+
+                    # Only exclude bottom-fixed cells that scored 0
+                    bottom_fixed_mask = depth_values <= threshold
+                    layer_knockout = bottom_fixed_mask & (layer_scores == 0)
+                    knockout_mask |= layer_knockout
+                    results_df.loc[layer_knockout, 'EXCLUSION_REASONS'] += f'{layer_name} (score=0) | '
+
             results_df['FINAL_GRID_SCORE'] = total_weighted_score
             results_df.loc[knockout_mask, 'FINAL_GRID_SCORE'] = 0
 

@@ -164,9 +164,9 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
           ))}
         </div>
 
-        {/* Raster file picker — opens native Windows file dialog */}
+        {/* Raster / Vector file picker */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-slate-600">Raster File (.tif)</label>
+          <label className="text-sm font-medium text-slate-600">Layer File (.tif or .shp)</label>
           <div className="flex gap-2 items-center">
             <button
               onClick={openNativeFileDialog}
@@ -180,11 +180,14 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
             )}
           </div>
           <input
-            placeholder="Or paste full path manually, e.g. C:\data\layer.tif"
+            placeholder="Or paste full path, e.g. C:\data\layer.tif  or  C:\data\seabed.shp"
             value={rasterPath}
             onChange={e => setRasterPath(e.target.value)}
             className="w-full border rounded-lg p-2 text-sm"
           />
+          {rasterPath.toLowerCase().endsWith('.shp') && (
+            <p className="text-xs text-blue-600">🗺️ Shapefile detected — will be processed as vector seabed layer.</p>
+          )}
         </div>
 
         {/* Layer name */}
@@ -253,7 +256,10 @@ export default function ScoringTab({ config, onComplete, status, activeTab }: Pr
                 />
                 <div>
                   <span className="text-sm font-medium">{l.is_predefined ? '🏷️' : '🔧'} {l.prefix}</span>
-                  <p className="text-xs text-slate-500">{l.analysis_modes.join(', ')} — {l.path.split(/[\\/]/).pop()}</p>
+                  <p className="text-xs text-slate-500">
+                    {(l as any).layer_type === 'vector_seabed' ? '🗺️ vector seabed' : l.analysis_modes.join(', ')}
+                    {' — '}{l.path.split(/[\\/]/).pop()}
+                  </p>
                 </div>
               </div>
               <button onClick={() => removeLayer(i)} className="text-red-500 hover:text-red-700 text-lg">×</button>

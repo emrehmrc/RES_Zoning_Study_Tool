@@ -35,6 +35,8 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
   const boundaryLayerRef = useRef<any>(null)
   const gridLayerRef = useRef<any>(null)
   const rasterOverlaysRef = useRef<Map<string, any>>(new Map())
+  // GeoJSON overlays for vector seabed layers
+  const vectorOverlaysRef = useRef<Map<string, any>>(new Map())
 
   // Grid info from session
   const [gridInfo, setGridInfo] = useState<{
@@ -348,10 +350,67 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
     }
   }, [])
 
-  // Toggle raster layer visibility
-  const toggleLayerVisibility = useCallback((path: string, name: string) => {
-    // Always mark this as the active layer immediately, before any async work
+  // Load vector (seabed shapefile) preview
+  const loadVectorPreview = useCallback(async (path: string, name: string) => {
+    if (!L || !mapRef.current) return
+    if (vectorOverlaysRef.current.has(path)) return
+
+    setLoadingLayers(prev => new Set(prev).add(path))
+    try {
+      const res = await apiGet<{
+        type: string
+        features: any[]
+        category_colors: Record<string, string>
+      }>(`/vector-preview/?path=${encodeURIComponent(path)}`)
+
+      const geojsonLayer = L.geoJSON(res as any, {
+        style: (feature: any) => ({
+          fillColor: feature?.properties?.color ?? '#aaaaaa',
+          fillOpacity: 0.6,
+          color: '#333333',
+          weight: 0.5,
+        }),
+        onEachFeature: (feature: any, layer: any) => {
+          if (feature.properties?.category) {
+            layer.bindTooltip(feature.properties.category, { sticky: true })
+          }
+        },
+      }).addTo(mapRef.current)
+
+      vectorOverlaysRef.current.set(path, geojsonLayer)
+      setVisibleLayers(prev => new Set(prev).add(path))
+    } catch (e: any) {
+      setError(`Failed to load vector preview for ${name}: ${e.message}`)
+    } finally {
+      setLoadingLayers(prev => {
+        const next = new Set(prev)
+        next.delete(path)
+        return next
+      })
+    }
+  }, [])
+
+  // Toggle raster or vector layer visibility
+  const toggleLayerVisibility = useCallback((path: string, name: string, layerType?: string) => {
     setClickInfo(null)
+
+    const isVector = layerType === 'vector_seabed' || path.toLowerCase().endsWith('.shp')
+
+    if (isVector) {
+      const vOverlay = vectorOverlaysRef.current.get(path)
+      if (!vOverlay) {
+        loadVectorPreview(path, name)
+        return
+      }
+      if (visibleLayers.has(path)) {
+        if (mapRef.current?.hasLayer(vOverlay)) mapRef.current.removeLayer(vOverlay)
+        setVisibleLayers(prev => { const n = new Set(prev); n.delete(path); return n })
+      } else {
+        if (mapRef.current) vOverlay.addTo(mapRef.current)
+        setVisibleLayers(prev => new Set(prev).add(path))
+      }
+      return
+    }
 
     const overlay = rasterOverlaysRef.current.get(path)
     if (!overlay) {
@@ -366,21 +425,29 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
       if (mapRef.current) overlay.addTo(mapRef.current)
       setVisibleLayers(prev => new Set(prev).add(path))
     }
-  }, [visibleLayers, loadRasterPreview])
+  }, [visibleLayers, loadRasterPreview, loadVectorPreview])
 
-  // Clean up raster overlays for layers that have been removed
+  // Clean up raster/vector overlays for layers that have been removed
   useEffect(() => {
     const currentPaths = new Set(layers.map(l => l.path))
     const toRemove: string[] = []
     rasterOverlaysRef.current.forEach((_, path) => {
       if (!currentPaths.has(path)) toRemove.push(path)
     })
+    vectorOverlaysRef.current.forEach((_, path) => {
+      if (!currentPaths.has(path) && !toRemove.includes(path)) toRemove.push(path)
+    })
     if (toRemove.length === 0) return
     toRemove.forEach(path => {
-      const overlay = rasterOverlaysRef.current.get(path)
-      if (overlay) {
-        if (mapRef.current?.hasLayer(overlay)) mapRef.current.removeLayer(overlay)
+      const rOverlay = rasterOverlaysRef.current.get(path)
+      if (rOverlay) {
+        if (mapRef.current?.hasLayer(rOverlay)) mapRef.current.removeLayer(rOverlay)
         rasterOverlaysRef.current.delete(path)
+      }
+      const vOverlay = vectorOverlaysRef.current.get(path)
+      if (vOverlay) {
+        if (mapRef.current?.hasLayer(vOverlay)) mapRef.current.removeLayer(vOverlay)
+        vectorOverlaysRef.current.delete(path)
       }
     })
     setVisibleLayers(prev => {
@@ -465,7 +532,7 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
         </label>
         {layers.map((l) => (
           <label key={l.path} className="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" checked={visibleLayers.has(l.path)} onChange={() => toggleLayerVisibility(l.path, l.prefix)} className="accent-emerald-600" />
+          <input type="checkbox" checked={visibleLayers.has(l.path)} onChange={() => toggleLayerVisibility(l.path, l.prefix, l.layer_type)} className="accent-emerald-600" />
             <span className="text-slate-600">
               {l.prefix}
               {loadingLayers.has(l.path) && <span className="ml-1 text-xs text-amber-500">(loading...)</span>}
