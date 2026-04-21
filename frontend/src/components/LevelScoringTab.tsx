@@ -54,7 +54,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
   const [layerGroups, setLayerGroups] = useState<Record<string, LayerGroup>>({})
   const [scoringConfigs, setScoringConfigs] = useState<Record<string, LayerScoringConfig>>({})
   const [constraintConfigs, setConstraintConfigs] = useState<Record<string, LayerConstraintConfig>>({})
-  const [columnModes, setColumnModes] = useState<Record<string, 'scoring' | 'exclusion' | 'skip'>>({})
+  const [columnModes, setColumnModes] = useState<Record<string, 'scoring' | 'exclusion' | 'skip' | 'connection'>>({})
 
   const loadColumns = useCallback(async () => {
     try {

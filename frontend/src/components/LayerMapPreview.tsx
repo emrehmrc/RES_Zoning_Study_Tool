@@ -278,7 +278,7 @@ export default function LayerMapPreview({ layers, activeTab, focusCell }: Props)
     const handleClick = async (e: any) => {
       const visible = visibleLayersRef.current
       if (visible.size === 1) {
-        const path = [...visible][0]
+        const path = visible.values().next().value as string
         try {
           const r = await apiGet<{ bands: Record<string, number | null> }>(
             `/raster-pixel/?path=${encodeURIComponent(path)}&lat=${e.latlng.lat}&lng=${e.latlng.lng}`

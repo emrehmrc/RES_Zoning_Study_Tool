@@ -91,6 +91,19 @@ class AddLayerView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 _epsg = _crs.to_epsg()
+                # to_epsg() returns None when PROJ confidence is below threshold (Docker/Linux PROJ mismatch).
+                # Fall back to to_authority(), then WKT keyword matching.
+                if _epsg is None:
+                    _auth = _crs.to_authority()
+                    if _auth and _auth[0].upper() == 'EPSG':
+                        try:
+                            _epsg = int(_auth[1])
+                        except (ValueError, TypeError):
+                            pass
+                if _epsg is None:
+                    _wkt = _crs.to_wkt().upper()
+                    if 'PSEUDO-MERCATOR' in _wkt or 'PSEUDO_MERCATOR' in _wkt or 'WEB MERCATOR' in _wkt or '3857' in _wkt:
+                        _epsg = 3857
                 if _epsg != 3857:
                     return Response(
                         {'error': f'⚠️ CRS Error: Unsupported projection ({_crs}, EPSG:{_epsg}). '

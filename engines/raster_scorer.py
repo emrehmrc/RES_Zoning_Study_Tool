@@ -11,12 +11,17 @@ import numpy as np
 import rasterio
 from rasterio.windows import from_bounds
 from rasterstats import zonal_stats
+import multiprocessing as _mp
 import pandas as pd
 from osgeo import gdal, osr
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
 import time
 import psutil
 from pyproj.exceptions import ProjError
+
+# Use 'spawn' context to avoid fork-inside-fork deadlocks when running inside
+# gunicorn (Linux Docker). 'spawn' is already the default on Windows/macOS.
+_MP_CTX = _mp.get_context('spawn')
 
 # ── Fix PROJ_LIB before any CRS operations ──────────────────────────
 # GDAL 3.11 ships PROJ 9.7 which requires proj.db with
@@ -25,24 +30,35 @@ from pyproj.exceptions import ProjError
 def _init_proj_env():
     """Set PROJ_LIB to the newest compatible proj data directory."""
     import sqlite3
+    import site
 
-    sp = os.path.join(sys.prefix, 'Lib', 'site-packages')
+    # sys.prefix/Lib/site-packages is Windows-only. Use sysconfig on all platforms.
+    sp_candidates = site.getsitepackages() if hasattr(site, 'getsitepackages') else []
+    # Also add the user site and the prefix-based fallback
+    if site.getusersitepackages():
+        sp_candidates = list(sp_candidates) + [site.getusersitepackages()]
+    sp_candidates.append(os.path.join(sys.prefix, 'Lib', 'site-packages'))  # Windows fallback
+    # Use the first one that actually exists as the primary
+    sp = next((s for s in sp_candidates if os.path.isdir(s)), sp_candidates[0] if sp_candidates else '')
     # Candidate directories ordered by typical freshness
     candidate_dirs = []
-    # rasterio ships its own PROJ data
-    candidate_dirs.append(os.path.join(sp, 'rasterio', 'proj_data'))
-    # osgeo (GDAL wheel)
-    candidate_dirs.append(os.path.join(sp, 'osgeo', 'data', 'proj'))
-    # pyogrio
-    candidate_dirs.append(os.path.join(sp, 'pyogrio', 'proj_data'))
-    # pyproj
+    # Search all site-packages locations
+    for sp in sp_candidates:
+        candidate_dirs.append(os.path.join(sp, 'rasterio', 'proj_data'))
+        candidate_dirs.append(os.path.join(sp, 'osgeo', 'data', 'proj'))
+        candidate_dirs.append(os.path.join(sp, 'pyogrio', 'proj_data'))
+        candidate_dirs.append(os.path.join(sp, 'fiona', 'proj_data'))
+    # pyproj knows its own data dir
     try:
         import pyproj
         candidate_dirs.append(pyproj.datadir.get_data_dir())
     except Exception:
         pass
-    # fiona
-    candidate_dirs.append(os.path.join(sp, 'fiona', 'proj_data'))
+    # System PROJ data (Docker Debian installs here)
+    candidate_dirs.extend([
+        '/usr/share/proj',
+        '/usr/local/share/proj',
+    ])
 
     best_dir = None
     best_minor = -1
@@ -78,23 +94,33 @@ _init_proj_env()
 # Limit GDAL's internal block cache to prevent allocation failures with large rasters
 gdal.SetConfigOption('GDAL_CACHEMAX', '512')
 gdal.SetConfigOption('GTIFF_SRS_SOURCE', 'EPSG')
+gdal.SetConfigOption('CPL_LOG_ERRORS', 'OFF')
+gdal.SetConfigOption('OGR_CT_FORCE_TRADITIONAL_GIS_ORDER', 'YES')
 
 
 def get_short_path(long_path):
-    """Converts a Windows path with special characters to a safe short path."""
-    buf = ctypes.create_unicode_buffer(260)
-    ctypes.windll.kernel32.GetShortPathNameW(long_path, buf, 260)
-    return buf.value
+    """Converts a Windows path with special characters to a safe short path.
+    On Linux/Docker this is a no-op and returns the path unchanged."""
+    if os.name != 'nt':
+        return long_path
+    try:
+        buf = ctypes.create_unicode_buffer(260)
+        ctypes.windll.kernel32.GetShortPathNameW(long_path, buf, 260)  # type: ignore[attr-defined]
+        return buf.value
+    except Exception:
+        return long_path
 
 
 def init_worker_env():
     """Initializes the GDAL/PROJ environment for each parallel worker."""
     from osgeo import gdal
-    
+
     _init_proj_env()
     gdal.SetConfigOption('GTIFF_SRS_SOURCE', 'EPSG')
-    # Limit GDAL block cache to 256 MB per worker to prevent allocation failures
     gdal.SetConfigOption('GDAL_CACHEMAX', '256')
+    # Suppress PROJ/CRS warnings that would otherwise spam logs or raise on Linux
+    gdal.SetConfigOption('CPL_LOG_ERRORS', 'OFF')
+    gdal.SetConfigOption('OGR_CT_FORCE_TRADITIONAL_GIS_ORDER', 'YES')
     gdal.UseExceptions()
 
 
@@ -159,12 +185,12 @@ class UniversalRasterScorer:
 
         try:
             return grid_gdf.to_crs(raster_crs)
-        except ProjError:
+        except Exception:
             # Reinitialize PROJ env in case external apps poisoned PROJ_LIB at runtime.
             _init_proj_env()
             try:
                 return grid_gdf.to_crs(raster_crs)
-            except ProjError:
+            except Exception:
                 pass
 
         crs_text = str(raster_crs).upper()
@@ -180,9 +206,12 @@ class UniversalRasterScorer:
                 return grid_gdf.to_crs(epsg_code)
 
         # Fallback heuristics for common CRS cases where source metadata is odd.
+        # LOCAL_CS["WGS 84 / Pseudo-Mercator"...] contains PSEUDO-MERCATOR but not 3857.
         if '4326' in crs_text:
             return grid_gdf.to_crs("EPSG:4326")
-        if '3857' in crs_text or '900913' in crs_text:
+        if ('3857' in crs_text or '900913' in crs_text
+                or 'PSEUDO-MERCATOR' in crs_text or 'PSEUDO_MERCATOR' in crs_text
+                or 'WEB MERCATOR' in crs_text):
             if str(grid_gdf.crs).upper() in ['EPSG:3857', '3857']:
                 return grid_gdf
             return grid_gdf.to_crs("EPSG:3857")
@@ -678,7 +707,7 @@ class UniversalRasterScorer:
             for layer in layer_configs
         ]
         
-        with Pool(processes=safe_workers, initializer=init_worker_env) as pool:
+        with _MP_CTX.Pool(processes=safe_workers, initializer=init_worker_env) as pool:
             results = pool.starmap(_process_layer_worker, args_list)
         
         merged = grid_gdf[['cell_id', 'wkt']].copy()
@@ -742,7 +771,7 @@ class UniversalRasterScorer:
                 for chunk in grid_chunks
             ]
             
-            with Pool(processes=safe_workers, initializer=init_worker_env) as pool:
+            with _MP_CTX.Pool(processes=safe_workers, initializer=init_worker_env) as pool:
                 chunk_results = pool.starmap(_process_layer_worker, args_list)
             
             layer_result = pd.concat(chunk_results, ignore_index=True)
