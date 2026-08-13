@@ -63,7 +63,8 @@ class RunClusterView(APIView):
         session = SessionManager.get_session(request.session_id)
         project_type = session.get('project_type', 'Solar')
 
-        nominal_capacity_mw = float(request.data.get('nominal_capacity_mw', 13.0))
+        solar_default_capacity = 25.0 if project_type == 'Solar' else 13.0
+        nominal_capacity_mw = float(request.data.get('nominal_capacity_mw', solar_default_capacity))
         max_capacity_mw = float(request.data.get('max_capacity_mw', 250.0))
         adjust_for_coverage = request.data.get('adjust_for_coverage', True)
         scoring_rules = request.data.get('scoring_rules', [])
@@ -98,6 +99,10 @@ class RunClusterView(APIView):
             cell_gdf = ClusterEngine.calculate_cell_capacities(
                 cell_gdf, nominal_capacity_mw, adjust_for_coverage,
                 default_cell_area=default_cell_area,
+                coverage_columns=(
+                    ['Agricultural Areas_coverage_pct', 'Land Use (Urban, Residential, Industrial)_coverage_pct']
+                    if project_type == 'Solar' else None
+                ),
             )
             cell_gdf, G, components = ClusterEngine.build_adjacency_components(cell_gdf)
             cell_gdf = ClusterEngine.enforce_capacity_limits(
@@ -295,6 +300,10 @@ def _run_cluster_work(session_id, source, nominal_capacity_mw, max_capacity_mw,
     cell_gdf = ClusterEngine.calculate_cell_capacities(
         cell_gdf, nominal_capacity_mw, adjust_for_coverage,
         default_cell_area=default_cell_area,
+        coverage_columns=(
+            ['Agricultural Areas_coverage_pct', 'Land Use (Urban, Residential, Industrial)_coverage_pct']
+            if project_type == 'Solar' else None
+        ),
     )
 
     progress_callback(35, 'Building adjacency graph...')
@@ -360,7 +369,9 @@ class RunClusterAsyncView(APIView):
             _run_cluster_work,
             session_id=request.session_id,
             source=request.data.get('source', 'step3'),
-            nominal_capacity_mw=float(request.data.get('nominal_capacity_mw', 13.0)),
+            nominal_capacity_mw=float(request.data.get(
+                'nominal_capacity_mw', 25.0 if project_type == 'Solar' else 13.0
+            )),
             max_capacity_mw=float(request.data.get('max_capacity_mw', 250.0)),
             adjust_for_coverage=request.data.get('adjust_for_coverage', True),
             scoring_rules=request.data.get('scoring_rules', []),

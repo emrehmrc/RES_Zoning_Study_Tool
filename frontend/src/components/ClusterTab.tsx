@@ -38,7 +38,7 @@ const FINANCIAL_LABELS: Record<string, { label: string; unit?: string; modes?: s
 interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: number; status?: ProjectStatus | null }
 
 export default function ClusterTab({ config, onComplete, activeTab, status }: Props) {
-  const [nominalCapacity, setNominalCapacity] = useState(13)
+  const [nominalCapacity, setNominalCapacity] = useState(config.project_type === 'Solar' ? 25 : 13)
   const [maxCapacity, setMaxCapacity] = useState(250)
   const [adjustCoverage, setAdjustCoverage] = useState(true)
 
@@ -80,6 +80,11 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
   }, [])
 
   useEffect(() => { loadRefData() }, [loadRefData])
+
+  // The standalone Solar pipeline uses 25 MW as the full-cell PV capacity.
+  useEffect(() => {
+    if (config.project_type === 'Solar') setNominalCapacity(25)
+  }, [config.project_type])
 
   // Re-fetch reference data when this tab (index 3) becomes active
   useEffect(() => {
@@ -229,8 +234,12 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                         <th className="px-2 py-1.5 text-center border-b border-l bg-green-50 text-green-700" colSpan={3}>Level 2</th>
                         <th className="px-2 py-1.5 text-center border-b border-l bg-yellow-50 text-yellow-700" colSpan={3}>Level 3</th>
                         <th className="px-2 py-1.5 text-center border-b border-l bg-orange-50 text-orange-700" colSpan={3}>Level 4</th>
+                        <th className="px-2 py-1.5 text-center border-b border-l bg-red-50 text-red-700" colSpan={3}>Level 5</th>
                       </tr>
                       <tr className="bg-slate-50">
+                        <th className="px-2 py-1 text-left border-b border-l">Min</th>
+                        <th className="px-2 py-1 text-left border-b">Max</th>
+                        <th className="px-2 py-1 text-left border-b">Score</th>
                         <th className="px-2 py-1 text-left border-b border-l">Min</th>
                         <th className="px-2 py-1 text-left border-b">Max</th>
                         <th className="px-2 py-1 text-left border-b">Score</th>
@@ -286,6 +295,21 @@ export default function ClusterTab({ config, onComplete, activeTab, status }: Pr
                           <td className="px-2 py-1">
                             <input type="number" value={r.L4_score} onChange={e => updateRule(i, 'L4_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
                           </td>
+                          {r.L5_min !== undefined ? (
+                            <>
+                              <td className="px-2 py-1 border-l">
+                                <input type="number" value={r.L5_min} onChange={e => updateRule(i, 'L5_min', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                              </td>
+                              <td className="px-2 py-1">
+                                <input type="number" value={r.L5_max} onChange={e => updateRule(i, 'L5_max', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                              </td>
+                              <td className="px-2 py-1">
+                                <input type="number" value={r.L5_score} onChange={e => updateRule(i, 'L5_score', +e.target.value)} className="w-14 border rounded p-0.5 text-xs" />
+                              </td>
+                            </>
+                          ) : (
+                            <td colSpan={3} className="px-2 py-1 border-l text-center text-slate-400">—</td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

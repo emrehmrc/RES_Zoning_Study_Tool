@@ -3,6 +3,7 @@ import json
 import threading
 from functools import lru_cache
 
+import fiona
 import geopandas as gpd
 import pandas as pd
 from django.http import HttpResponse
@@ -10,9 +11,78 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from api.csv_utils import read_uploaded_csv
 from api.session_manager import SessionManager
 from config import Config
 from engines.grid_engine import FastGridEngine
+
+# ── Extra-country helpers ──────────────────────────────────────────────────────
+
+# Files that are handled natively — never listed as "extra" countries
+_NATIVE_FILES = {'NUTS_RG_01M_2021_4326.geojson', 'alb_admbnda_adm2_2019c.shp'}
+
+def _extra_country_dir():
+    return Config.BASE_DIR / "data" / "Country_Region_Data"
+
+def _best_name_column(gdf):
+    """Return the most suitable human-readable name column from a GeoDataFrame."""
+    for col in ('ADMIN', 'NAME_EN', 'NAME', 'ADM0_EN', 'ADM0_NAME', 'COUNTRY',
+                'name', 'NAME_LATN', 'NAME_0', 'SOVEREIGNT', 'name_en', 'Name'):
+        if col in gdf.columns:
+            return col
+    for col in gdf.columns:
+        if col != 'geometry' and gdf[col].dtype == object:
+            return col
+    return None
+
+def _read_extra_file(path):
+    """Read a shapefile/geojson tolerantly (recreate missing SHX if needed)."""
+    with fiona.Env(SHAPE_RESTORE_SHX='YES'):
+        try:
+            return gpd.read_file(str(path), engine='fiona')
+        except Exception:
+            return gpd.read_file(str(path))
+
+def _extra_country_names():
+    """
+    Return a dict {display_name: (path, row_filter_value, name_col)} for every
+    feature found in Country_Region_Data that is not a native file.
+    """
+    d = _extra_country_dir()
+    if not d.exists():
+        return {}
+    result = {}
+    for ext in ('*.shp', '*.geojson'):
+        for p in sorted(d.glob(ext)):
+            if p.name in _NATIVE_FILES:
+                continue
+            try:
+                gdf = _read_extra_file(p)
+                name_col = _best_name_column(gdf)
+                if name_col:
+                    for val in gdf[name_col].dropna().unique():
+                        result[str(val)] = (p, str(val), name_col)
+                else:
+                    # No name column — use the file stem as the country name
+                    result[p.stem] = (p, None, None)
+            except Exception:
+                continue
+    return result
+
+def _load_extra_boundary(country_name):
+    """
+    Return a GeoDataFrame for *country_name* from the extra files, or None.
+    The returned GDF is already in its native CRS (will be re-projected downstream).
+    """
+    names = _extra_country_names()
+    if country_name not in names:
+        return None
+    path, filter_val, name_col = names[country_name]
+    gdf = _read_extra_file(path)
+    if name_col and filter_val is not None:
+        sub = gdf[gdf[name_col] == filter_val]
+        return sub if not sub.empty else gdf
+    return gdf
 
 
 @lru_cache(maxsize=1)
@@ -80,7 +150,9 @@ class CountryListView(APIView):
     def get(self, request):
         try:
             nuts = _load_nuts_data()
-            countries = sorted(nuts['NAME_EN'].dropna().unique().tolist())
+            nuts_names = set(nuts['NAME_EN'].dropna().unique().tolist())
+            extra_names = set(_extra_country_names().keys()) - nuts_names
+            countries = sorted(nuts_names | extra_names)
             return Response({'countries': countries})
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -147,7 +219,10 @@ class CountryBoundaryView(APIView):
                 nuts = _load_nuts_data()
                 gdf = nuts[nuts['NAME_EN'] == country]
                 if gdf.empty:
-                    return Response({'error': 'Country not found.'}, status=status.HTTP_404_NOT_FOUND)
+                    # Fall back to extra-file countries (e.g. syr_admin0.shp)
+                    gdf = _load_extra_boundary(country)
+                    if gdf is None or gdf.empty:
+                        return Response({'error': 'Country not found.'}, status=status.HTTP_404_NOT_FOUND)
             elif zone:
                 eez = _load_eez_data()
                 gdf = eez[eez['GEONAME'] == zone]
@@ -207,7 +282,10 @@ class CreateGridView(APIView):
                     nuts = _load_nuts_data()
                     boundary_gdf = nuts[nuts['NAME_EN'] == country_name]
                     if boundary_gdf.empty:
-                        return Response({'error': f'Country "{country_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+                        # Fall back to extra-file countries (e.g. syr_admin0.shp)
+                        boundary_gdf = _load_extra_boundary(country_name)
+                        if boundary_gdf is None or boundary_gdf.empty:
+                            return Response({'error': f'Country "{country_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
 
             elif boundary_method == 'eez':
                 zone_name = request.data.get('zone_name')
@@ -272,8 +350,7 @@ class UploadGridView(APIView):
             return Response({'error': 'CSV file is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            content = csv_file.read().decode('utf-8')
-            grid_df = pd.read_csv(io.StringIO(content))
+            grid_df, delimiter = read_uploaded_csv(csv_file)
 
             required_cols = ['cell_id', 'wkt']
             missing = [c for c in required_cols if c not in grid_df.columns]
@@ -281,21 +358,44 @@ class UploadGridView(APIView):
                 return Response({'error': f'Missing columns: {missing}'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Build boundary_gdf + grid dimensions from WKT cells
-            from shapely import wkt as shapely_wkt
-            from shapely.ops import unary_union
+            import shapely
+            from shapely.geometry import GeometryCollection
 
-            geometries = grid_df['wkt'].dropna().apply(shapely_wkt.loads).tolist()
             grid_size_x = 0.0
             grid_size_y = 0.0
-            if geometries:
-                # Derive boundary as convex hull of all cells
-                boundary_geom = unary_union(geometries).convex_hull
+            batch_hulls = []
+            first_geometry = None
+            chunk_size = 10_000
+
+            for start in range(0, len(grid_df), chunk_size):
+                values = [
+                    str(value).strip()
+                    for value in grid_df['wkt'].iloc[start:start + chunk_size].dropna()
+                    if str(value).strip()
+                ]
+                if not values:
+                    continue
+
+                try:
+                    geometries = shapely.from_wkt(values)
+                except shapely.errors.GEOSException as exc:
+                    raise ValueError(
+                        f'Invalid WKT geometry near CSV row {start + 2}: {exc}'
+                    ) from exc
+
+                if first_geometry is None:
+                    first_geometry = geometries[0]
+                batch_hulls.append(GeometryCollection(geometries.tolist()).convex_hull)
+
+            if batch_hulls:
+                # Convex hulls can be combined without the expensive union of every cell.
+                boundary_geom = GeometryCollection(batch_hulls).convex_hull
                 # WKT cells are in EPSG:3857 (grid engine output)
                 boundary_gdf = gpd.GeoDataFrame(geometry=[boundary_geom], crs='EPSG:3857')
                 SessionManager.save_dataframe(request.session_id, 'boundary_gdf', boundary_gdf)
 
                 # Estimate grid cell dimensions from the first cell's bounding box
-                first_bounds = geometries[0].bounds  # (minx, miny, maxx, maxy)
+                first_bounds = first_geometry.bounds  # (minx, miny, maxx, maxy)
                 grid_size_x = first_bounds[2] - first_bounds[0]
                 grid_size_y = first_bounds[3] - first_bounds[1]
 
@@ -319,7 +419,10 @@ class UploadGridView(APIView):
                 'total_cells': len(grid_df),
                 'columns': grid_df.columns.tolist(),
                 'preview': grid_df.head(50).to_dict(orient='records'),
+                'delimiter': delimiter,
             })
+        except (UnicodeError, pd.errors.ParserError, ValueError) as e:
+            return Response({'error': f'Invalid CSV: {e}'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

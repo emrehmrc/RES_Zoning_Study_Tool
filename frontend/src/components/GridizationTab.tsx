@@ -49,9 +49,8 @@ export default function GridizationTab({ config, onComplete }: Props) {
     return Math.round(clamped / step) * step
   }
 
-  const GRID_MIN = 100
+  const GRID_MIN = 1
   const GRID_MAX = 10000
-  const GRID_STEP = 100
   const TURB_MIN = 20
   const TURB_MAX = config.project_type === 'OnShore' ? 200 : 500
   const TURB_STEP = 10
@@ -178,15 +177,19 @@ export default function GridizationTab({ config, onComplete }: Props) {
       const totalCells: number = res.total_cells ?? 0
       const dense = totalCells > MAX_MAP_CELLS
       setTooDenseForMap(dense)
-      try {
-        const full = await apiGet<{ data: any[]; columns: string[] }>('/grid/data/?page=1&page_size=100000')
-        setGridData({ columns: full.columns, data: full.data })
-        if (!dense) {
+      if (dense) {
+        setGridData({
+          columns: res.columns ?? [],
+          data: res.preview ?? [],
+        })
+        setWktCells([])
+      } else {
+        try {
+          const full = await apiGet<{ data: any[]; columns: string[] }>('/grid/data/?page=1&page_size=100000')
+          setGridData({ columns: full.columns, data: full.data })
           setWktCells(full.data.map((r: any) => r.wkt).filter(Boolean))
-        } else {
-          setWktCells([])
-        }
-      } catch (e: any) { setError('Table load error: ' + (e?.message || String(e))) }
+        } catch (e: any) { setError('Table load error: ' + (e?.message || String(e))) }
+      }
       setGridSource('upload')
       setMapKey(k => k + 1)
       onComplete()
@@ -300,14 +303,14 @@ export default function GridizationTab({ config, onComplete }: Props) {
                   <input
                     type="number"
                     value={gridSizeX}
-                    min={GRID_MIN} max={GRID_MAX} step={GRID_STEP}
+                    min={GRID_MIN} max={GRID_MAX} step={1}
                     onChange={e => setGridSizeX(+e.target.value)}
-                    onBlur={e => setGridSizeX(clampStep(+e.target.value, GRID_MIN, GRID_MAX, GRID_STEP))}
+                    onBlur={e => setGridSizeX(Math.min(GRID_MAX, Math.max(GRID_MIN, Math.round(+e.target.value))))}
                     className={`mt-1 w-full border rounded-lg p-2.5 ${gridXError ? 'border-red-400 bg-red-50' : ''}`}
                   />
                   {gridXError && (
                     <span className="text-xs text-red-500">
-                      Must be {GRID_MIN}–{GRID_MAX} m (step {GRID_STEP} m)
+                      Must be {GRID_MIN}–{GRID_MAX} m
                     </span>
                   )}
                 </label>
@@ -315,14 +318,14 @@ export default function GridizationTab({ config, onComplete }: Props) {
                   <input
                     type="number"
                     value={gridSizeY}
-                    min={GRID_MIN} max={GRID_MAX} step={GRID_STEP}
+                    min={GRID_MIN} max={GRID_MAX} step={1}
                     onChange={e => setGridSizeY(+e.target.value)}
-                    onBlur={e => setGridSizeY(clampStep(+e.target.value, GRID_MIN, GRID_MAX, GRID_STEP))}
+                    onBlur={e => setGridSizeY(Math.min(GRID_MAX, Math.max(GRID_MIN, Math.round(+e.target.value))))}
                     className={`mt-1 w-full border rounded-lg p-2.5 ${gridYError ? 'border-red-400 bg-red-50' : ''}`}
                   />
                   {gridYError && (
                     <span className="text-xs text-red-500">
-                      Must be {GRID_MIN}–{GRID_MAX} m (step {GRID_STEP} m)
+                      Must be {GRID_MIN}–{GRID_MAX} m
                     </span>
                   )}
                 </label>
@@ -392,7 +395,9 @@ export default function GridizationTab({ config, onComplete }: Props) {
                 <span className="ml-2 text-sm font-normal text-slate-500">({committedGridX}×{committedGridY}m)</span>
               )}
               {tooDenseForMap && (
-                <span className="ml-2 text-sm font-normal text-amber-500">(too dense to display on map)</span>
+                <span className="ml-2 text-sm font-normal text-amber-500">
+                  (boundary map and first 50 table rows shown)
+                </span>
               )}
             </h3>
             <button onClick={() => apiDownload('/grid/download/', 'grid.csv')}

@@ -500,7 +500,13 @@ def _run_analysis_work(session_id, layer_configs, *, progress_callback):
                     if col in result.columns:
                         result[col] = result[col].abs().round(3)
 
-            if scoring_cfgs.get(prefix, {}).get('normalize_by_max', False):
+            normalization_peak = scoring_cfgs.get(prefix, {}).get('normalization_peak')
+            if normalization_peak:
+                for suffix in ('_min', '_max', '_mean'):
+                    col = f'{prefix}{suffix}'
+                    if col in result.columns:
+                        result[col] = (result[col] / float(normalization_peak)).round(6)
+            elif scoring_cfgs.get(prefix, {}).get('normalize_by_max', False):
                 # Find the _max column to get the global reference maximum
                 max_col = f'{prefix}_max'
                 if max_col in result.columns:

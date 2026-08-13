@@ -15,6 +15,7 @@ export interface ClusterScoringRule {
   L2_max: number; L2_min: number; L2_score: number
   L3_max: number; L3_min: number; L3_score: number
   L4_max: number; L4_min: number; L4_score: number
+  L5_max?: number; L5_min?: number; L5_score?: number
   kind: string
   kv: number
 }
@@ -30,6 +31,7 @@ export interface ProjectConfig {
   scoring_configs: Record<string, {
     levels?: ScoringLevel[]
     weight?: number
+    max_coverage_threshold?: number
     normalize_by_max?: boolean
     type?: string
     depth_threshold?: number

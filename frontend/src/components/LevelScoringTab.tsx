@@ -10,7 +10,7 @@ interface Props { config: ProjectConfig; onComplete: () => void; activeTab?: num
 
 // Detects layers that belong to kV transmission infrastructure (used for Tab 4 connection scoring)
 function isKvConnectionLayer(name: string): boolean {
-  return /\b(110|220|400)\s*kv/i.test(name) && /line|substation/i.test(name)
+  return /\b(66|110|220|400)\s*kv/i.test(name) && /line|substation/i.test(name)
 }
 
 interface LayerScoringConfig {
@@ -145,7 +145,7 @@ export default function LevelScoringTab({ config, onComplete, activeTab }: Props
             column: group.modes['distance'],
             distance_column: group.modes['distance'],
             coverage_column: group.modes['coverage'],
-            max_coverage_threshold: 5,
+            max_coverage_threshold: layerCfgRaw?.max_coverage_threshold ?? 5,
             weight: config.scoring_configs[layerName]?.weight ?? 10,
             levels: distLevels.map((l: ScoringLevel) => ({ ...l })),
           }

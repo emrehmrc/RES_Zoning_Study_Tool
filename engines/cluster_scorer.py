@@ -85,8 +85,20 @@ def _score_distance(distance_km, capacity_mw, rule):
     if not (cap_min <= capacity_mw <= cap_max):
         return None
 
-    # Check levels L1 -> L4 (best to worst)
-    for lvl in ["L1", "L2", "L3", "L4"]:
+    # Check configured levels L1 -> L5 (best to worst). L5 is optional for
+    # capacity rules whose source table defines an explicit terminal range.
+    levels = ["L1", "L2", "L3", "L4"]
+    if "L5_min" in rule or "L5_max" in rule or "L5_score" in rule:
+        levels.append("L5")
+
+    # The lower bound of the best connection range is also a hard validity
+    # threshold. A distance below it (for example < 0.3 km) must never fall
+    # through to a lower level's score.
+    lower_bound = min(rule.get(f"{lvl}_min", 0) for lvl in levels)
+    if distance_km < lower_bound:
+        return 0
+
+    for lvl in levels:
         lmin = rule.get(f"{lvl}_min", 0)
         lmax = rule.get(f"{lvl}_max", 999999)
         lscore = rule.get(f"{lvl}_score", 0)
@@ -94,7 +106,7 @@ def _score_distance(distance_km, capacity_mw, rule):
             return lscore
 
     # Outside all level ranges — return lowest score
-    return rule.get("L4_score", 0)
+    return rule.get(f"{levels[-1]}_score", 0)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -206,6 +218,12 @@ class ClusterScorer:
         # weight_frac (as %) × connection_score → contribution of nearest connection
         connection_contribution = (df["Nearest_Weight_%"] / 100.0) * df["Nearest_Connection_Score"]
         df["Overall_Score"] = df["Mean_Cell_OverallScore"] + connection_contribution
+
+        # A cluster without an eligible grid connection is a no-go result.
+        # This mirrors the standalone Solar pipeline, where a connection score
+        # of zero excludes the combined cell from viable output.
+        df["Connection_Eligible"] = df["Nearest_Connection_Score"] > 0
+        df.loc[~df["Connection_Eligible"], "Overall_Score"] = 0
 
         # ── 7. Financial & Energy Metrics ─────────────────────────
         # Use defaults if config wasn't passed down

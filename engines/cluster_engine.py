@@ -47,12 +47,14 @@ class ClusterEngine:
         return gdf
 
     @staticmethod
-    def calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage=True, default_cell_area=None):
+    def calculate_cell_capacities(gdf, nominal_capacity_mw, adjust_for_coverage=True,
+                                  default_cell_area=None, coverage_columns=None):
         """
         Calculates the actual capacity of each cell.
         If default_cell_area is provided, scales capacity by (cell_area / default_cell_area),
         so clipped edge cells receive proportionally less capacity than full cells.
-        If adjust_for_coverage is True, also reduces capacity proportionally to combined layer coverage.
+        If adjust_for_coverage is True, reduces capacity by the requested coverage
+        columns. With no explicit list, all available coverage columns are used.
         """
         capacities = pd.Series(nominal_capacity_mw, index=gdf.index, dtype=float)
 
@@ -63,7 +65,10 @@ class ClusterEngine:
             capacities = capacities * area_ratio
 
         if adjust_for_coverage:
-            coverage_cols = [c for c in gdf.columns if c.endswith('_coverage_pct')]
+            coverage_cols = coverage_columns or [
+                c for c in gdf.columns if c.endswith('_coverage_pct')
+            ]
+            coverage_cols = [c for c in coverage_cols if c in gdf.columns]
             if coverage_cols:
                 # Fill NAs with 0
                 cov_df = gdf[coverage_cols].fillna(0)

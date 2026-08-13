@@ -10,18 +10,30 @@ from pathlib import Path
 from pyproj import Transformer
 
 
+def _utm_epsg_for_gdf(gdf: "gpd.GeoDataFrame") -> int:
+    """Return the EPSG code of the UTM zone that best covers *gdf*."""
+    centroid = gdf.to_crs("EPSG:4326").geometry.unary_union.centroid
+    lon, lat = centroid.x, centroid.y
+    zone = int((lon + 180) / 6) + 1
+    # WGS-84 UTM: 326xx north hemisphere, 327xx south hemisphere
+    return 32600 + zone if lat >= 0 else 32700 + zone
+
+
 class FastGridEngine:
     def __init__(self, boundary_gdf):
         """
         Initialize grid engine with boundary geometry
-        
+
         Parameters:
         -----------
         boundary_gdf : GeoDataFrame
             Boundary geometry for grid clipping
         """
-        # Work in EPSG:3857 (Web Mercator, metres)
-        self.boundary_gdf = boundary_gdf.to_crs("EPSG:3857")
+        # Work in a local UTM projection so dx/dy are true ground metres.
+        # EPSG:3857 (Web Mercator) inflates distances at non-equatorial latitudes
+        # (e.g. ~31% too large at 40 °N), so cells would be smaller than intended.
+        self._utm_epsg = _utm_epsg_for_gdf(boundary_gdf)
+        self.boundary_gdf = boundary_gdf.to_crs(f"EPSG:{self._utm_epsg}")
     
     def create_rectangular_grid(self, dx, dy, progress_callback=None, chunk_rows=500):
         """
@@ -50,7 +62,7 @@ class FastGridEngine:
             if progress_callback:
                 progress_callback(pct, text)
         
-        # 1. Bounding Box & Axis Vectors (EPSG:3857 — already in metres)
+        # 1. Bounding Box & Axis Vectors (UTM — true ground metres)
         update(0.05, "Calculating coordinate space...")
         xmin, ymin, xmax, ymax = self.boundary_gdf.total_bounds
 
@@ -97,7 +109,7 @@ class FastGridEngine:
                 'right': x_flat + dx,
                 'top': y_flat + dy,
                 'geometry': polygons
-            }, crs="EPSG:3857")
+            }, crs=f"EPSG:{self._utm_epsg}")
             
             # --- Intersection clipping (like QGIS Intersection) ---
             # 1) Keep only cells that intersect the boundary (fast check on simplified mask)
@@ -141,17 +153,27 @@ class FastGridEngine:
             raise ValueError("No grid cells fall within the provided boundary.")
         
         grid_gdf = pd.concat(chunk_results, ignore_index=True)
-        grid_gdf = gpd.GeoDataFrame(grid_gdf, geometry='geometry', crs="EPSG:3857")
+        grid_gdf = gpd.GeoDataFrame(grid_gdf, geometry='geometry', crs=f"EPSG:{self._utm_epsg}")
         grid_gdf['cell_id'] = grid_gdf.index
         
-        # 4. Center Points and WKT
-        update(0.78, "Calculating center points...")
-        # Use actual geometry centroid (correct for both full and clipped cells)
+        # 4. Reproject to EPSG:3857 for downstream compatibility
+        # (cluster_engine, raster_scorer, and the frontend all expect EPSG:3857 WKT/coords)
+        update(0.75, "Reprojecting to EPSG:3857...")
+        grid_gdf = grid_gdf.to_crs("EPSG:3857")
+        # Recompute bounding columns from the reprojected geometry
+        bounds_3857 = grid_gdf.geometry.bounds
+        grid_gdf['left']   = bounds_3857['minx'].values
+        grid_gdf['bottom'] = bounds_3857['miny'].values
+        grid_gdf['right']  = bounds_3857['maxx'].values
+        grid_gdf['top']    = bounds_3857['maxy'].values
+
+        # 5. Center Points and WKT (now in EPSG:3857)
+        update(0.80, "Calculating center points...")
         centroids = grid_gdf.geometry.centroid
         grid_gdf['Center_X'] = centroids.x
         grid_gdf['Center_Y'] = centroids.y
         grid_gdf['wkt'] = grid_gdf.geometry.to_wkt()
-        
+
         # Convert EPSG:3857 centres → EPSG:4326 for Leaflet display
         _t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
         lons, lats = _t.transform(grid_gdf['Center_X'].values, grid_gdf['Center_Y'].values)
